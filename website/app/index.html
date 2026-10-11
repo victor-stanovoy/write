@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wren — a focused Markdown writer</title>
+<meta name="description" content="Wren is a calm, distraction-free Markdown writing app with focus mode, syntax highlighting, live preview and one-click export.">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#fafaf8">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-theme="light">
+<div id="app">
+
+  <aside id="sidebar">
+    <div class="sb-head">
+      <input id="search" type="search" placeholder="Search documents" aria-label="Search documents">
+      <button id="newBtn" class="icon" title="New document (Ctrl/⌘ N)" aria-label="New document">＋</button>
+    </div>
+    <nav class="tabs">
+      <button data-tab="lib" class="on">Library</button>
+      <button data-tab="outline">Outline</button>
+      <button data-tab="history">History</button>
+    </nav>
+    <div id="libList" class="list"></div>
+    <div id="outlineList" class="list" hidden></div>
+    <div id="historyList" class="list" hidden></div>
+    <div class="sb-foot">
+      <button id="importBtn">Import…</button>
+      <button id="openBtn">Open file…</button>
+      <input id="fileInput" type="file" accept=".md,.markdown,.mdown,.txt,.text" multiple hidden>
+    </div>
+  </aside>
+
+  <main id="main">
+    <header id="topbar">
+      <button id="sbToggle" class="icon" title="Toggle library (Ctrl/⌘ \)" aria-label="Toggle library">☰</button>
+      <div id="docTitle" title="Document title">Untitled</div>
+      <div class="spacer"></div>
+      <div class="seg" role="group" aria-label="Focus mode">
+        <button data-focus="off" title="Focus off">Off</button>
+        <button data-focus="line" title="Focus line">Line</button>
+        <button data-focus="sentence" title="Focus sentence">Sentence</button>
+        <button data-focus="paragraph" title="Focus paragraph">Para</button>
+      </div>
+      <button id="previewBtn" class="icon" title="Preview (Ctrl/⌘ Shift P)" aria-label="Toggle preview">◧</button>
+      <button id="findBtn" class="icon" title="Find & replace (Ctrl/⌘ F)" aria-label="Find">⌕</button>
+      <button id="exportBtn" class="icon" title="Export" aria-label="Export">⇪</button>
+      <button id="themeBtn" class="icon" title="Switch theme" aria-label="Switch theme">◐</button>
+      <button id="settingsBtn" class="icon" title="Settings (Ctrl/⌘ ,)" aria-label="Settings">⚙</button>
+      <button id="paletteBtn" class="icon" title="Command palette (Ctrl/⌘ K)" aria-label="Command palette">⌘</button>
+    </header>
+
+    <div id="findbar" hidden>
+      <input id="findInput" placeholder="Find" aria-label="Find">
+      <input id="replInput" placeholder="Replace" aria-label="Replace">
+      <label class="chk"><input type="checkbox" id="findCase"> Aa</label>
+      <label class="chk"><input type="checkbox" id="findRe"> .*</label>
+      <span id="findCount">0</span>
+      <button id="findPrev" title="Previous (Shift Enter)">↑</button>
+      <button id="findNext" title="Next (Enter)">↓</button>
+      <button id="replOne">Replace</button>
+      <button id="replAll">All</button>
+      <button id="findClose" aria-label="Close find">✕</button>
+    </div>
+
+    <div id="panes">
+      <div id="scroller">
+        <div id="column">
+          <div id="inner">
+            <div id="backdrop" aria-hidden="true"></div>
+            <textarea id="editor" spellcheck="false" autocapitalize="sentences" aria-label="Editor" placeholder="Start writing…"></textarea>
+          </div>
+        </div>
+      </div>
+      <div id="preview" hidden></div>
+    </div>
+
+    <footer id="status">
+      <span id="stWords">0 words</span>
+      <span id="stChars">0 chars</span>
+      <span id="stSent">0 sentences</span>
+      <span id="stRead">0 min read</span>
+      <span id="stSel"></span>
+      <div class="spacer"></div>
+      <span id="stGoal" title="Daily word goal"></span>
+      <span id="stSaved">Saved</span>
+    </footer>
+  </main>
+</div>
+
+<div id="measure" aria-hidden="true"></div>
+
+<div id="palette" class="overlay" hidden>
+  <div class="card pal">
+    <input id="palInput" placeholder="Type a command…" aria-label="Command">
+    <div id="palList"></div>
+  </div>
+</div>
+
+<div id="exportMenu" class="menu" hidden></div>
+
+<div id="settings" class="overlay" hidden>
+  <div class="card set">
+    <div class="set-head"><h2>Settings</h2><button id="setClose" class="icon" aria-label="Close settings">✕</button></div>
+    <div class="grid">
+      <label>Theme
+        <select data-k="theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option><option value="sepia">Sepia</option></select></label>
+      <label>Accent <input type="color" data-k="accent"></label>
+      <label>Font
+        <select data-k="font"><option value="mono">System mono</option><option value="courier">Courier</option><option value="menlo">Menlo / Consolas</option><option value="jetbrains">JetBrains / Fira</option></select></label>
+      <label>Size <input type="range" min="13" max="28" step="1" data-k="size"></label>
+      <label>Line height <input type="range" min="1.3" max="2.2" step="0.05" data-k="lh"></label>
+      <label>Line width <input type="range" min="420" max="1000" step="10" data-k="width"></label>
+      <label>Focus mode
+        <select data-k="focus"><option value="off">Off</option><option value="line">Line</option><option value="sentence">Sentence</option><option value="paragraph">Paragraph</option></select></label>
+      <label class="chk"><input type="checkbox" data-k="typewriter"> Typewriter scrolling</label>
+      <label class="chk"><input type="checkbox" data-k="spell"> Spell check</label>
+      <label>Daily word goal <input type="number" min="0" step="50" data-k="dailyGoal"></label>
+    </div>
+    <h3>Syntax highlight <small>(English, heuristic)</small></h3>
+    <div class="pos">
+      <label class="chk p-noun"><input type="checkbox" data-k="pos.noun"> Nouns</label>
+      <label class="chk p-verb"><input type="checkbox" data-k="pos.verb"> Verbs</label>
+      <label class="chk p-adj"><input type="checkbox" data-k="pos.adj"> Adjectives</label>
+      <label class="chk p-adv"><input type="checkbox" data-k="pos.adv"> Adverbs</label>
+      <label class="chk p-conj"><input type="checkbox" data-k="pos.conj"> Conjunctions</label>
+    </div>
+    <h3>Shortcuts</h3>
+    <ul class="keys">
+      <li><kbd>Ctrl/⌘ K</kbd> Command palette</li>
+      <li><kbd>Ctrl/⌘ B</kbd> / <kbd>I</kbd> Bold / italic</li>
+      <li><kbd>Ctrl/⌘ Shift K</kbd> Link</li>
+      <li><kbd>Ctrl/⌘ Shift P</kbd> Preview</li>
+      <li><kbd>Ctrl/⌘ Shift F</kbd> Cycle focus mode</li>
+      <li><kbd>Ctrl/⌘ Shift J</kbd> Zen mode</li>
+      <li><kbd>Ctrl/⌘ N</kbd> New · <kbd>Ctrl/⌘ S</kbd> Save file</li>
+      <li><kbd>Ctrl/⌘ F</kbd> Find &amp; replace</li>
+    </ul>
+    <p class="note">Everything is stored in your browser. Nothing is uploaded anywhere.</p>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>

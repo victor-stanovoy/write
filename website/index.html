@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wren — a calm Markdown writer for Mac and the web</title>
+<meta name="description" content="Wren is a free, distraction-free Markdown writing app. Focus mode, syntax highlighting, live preview, version history and one-click export. Use it in your browser or download it for Mac.">
+<link rel="icon" href="app/icon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#fafaf8;--fg:#1c1c1e;--muted:#6f6f75;--line:#e4e4df;--panel:#f2f2ef;--acc:#10a5c8;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#17181a;--fg:#e7e7e7;--muted:#8e9197;--line:#2b2d31;--panel:#1e2023}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif}
+a{color:inherit}
+.wrap{max-width:1040px;margin:0 auto;padding:0 24px}
+nav{display:flex;align-items:center;gap:22px;padding:20px 0}
+nav .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px;text-decoration:none}
+nav .logo img{width:30px;height:30px}
+nav .sp{flex:1}nav a.l{text-decoration:none;color:var(--muted);font-size:15px}nav a.l:hover{color:var(--fg)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:10px;border:1px solid var(--line);text-decoration:none;font-weight:600;transition:transform .1s}
+.btn:hover{transform:translateY(-1px)}
+.btn.p{background:var(--acc);border-color:var(--acc);color:#fff}
+.hero{padding:70px 0 40px;text-align:center}
+.hero h1{font-size:clamp(38px,6vw,68px);line-height:1.05;letter-spacing:-.03em;margin:0 0 18px}
+.hero p{font-size:clamp(18px,2.2vw,22px);color:var(--muted);max-width:640px;margin:0 auto 30px}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.small{color:var(--muted);font-size:13.5px;margin-top:14px}
+.shot{margin:46px auto 0;max-width:860px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:0 30px 80px rgba(0,0,0,.12);overflow:hidden;text-align:left}
+.shot .bar{display:flex;gap:7px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.shot .bar i{width:11px;height:11px;border-radius:50%;background:var(--line)}
+.shot .doc{padding:44px 56px 56px;font:18px/1.75 var(--mono);background:var(--bg)}
+.shot .dim{opacity:.3}.shot .mk{color:#a6a6a6}.shot .h{font-weight:700;color:var(--acc)}
+.shot .caret{display:inline-block;width:2px;height:1.15em;background:var(--acc);vertical-align:text-bottom;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.n{background:rgba(214,152,40,.28);border-radius:3px}.v{background:rgba(220,80,70,.24);border-radius:3px}.a{background:rgba(60,130,230,.24);border-radius:3px}
+section{padding:70px 0}
+h2{font-size:clamp(28px,4vw,42px);letter-spacing:-.02em;margin:0 0 12px;text-align:center}
+.sub{color:var(--muted);text-align:center;max-width:620px;margin:0 auto 44px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.card{padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.card h3{margin:0 0 6px;font-size:18px}.card p{margin:0;color:var(--muted);font-size:15.5px}
+.dl{background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.dlgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;max-width:820px;margin:0 auto}
+.dlgrid .card{text-align:center;padding:34px 24px}
+.dlgrid .card h3{font-size:22px;margin-bottom:8px}.dlgrid .card p{margin-bottom:20px}
+table{width:100%;border-collapse:collapse;max-width:820px;margin:0 auto;font-size:15.5px}
+th,td{padding:11px 14px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--muted);font-weight:600}
+td:not(:first-child),th:not(:first-child){text-align:center}
+.yes{color:var(--acc);font-weight:700}
+details{max-width:720px;margin:0 auto 10px;border:1px solid var(--line);border-radius:10px;padding:14px 18px;background:var(--panel)}
+summary{cursor:pointer;font-weight:600}details p{color:var(--muted);margin:10px 0 0;font-size:15.5px}
+.steps{max-width:720px;margin:20px auto 0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px 20px;font-size:15px;color:var(--muted);text-align:left}
+.steps ol{margin:6px 0 0;padding-left:20px}
+code{font-family:var(--mono);font-size:.9em;background:var(--panel);padding:.1em .4em;border-radius:5px}
+footer{padding:40px 0;color:var(--muted);text-align:center;font-size:14px}
+@media(max-width:680px){.dlgrid{grid-template-columns:1fr}.shot .doc{padding:26px 22px;font-size:15px}nav .l{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="logo" href="#"><img src="app/icon.svg" alt="">Wren</a>
+    <div class="sp"></div>
+    <a class="l" href="#features">Features</a>
+    <a class="l" href="#compare">Compare</a>
+    <a class="l" href="#download">Download</a>
+    <a class="btn p" href="app/index.html" style="padding:8px 16px">Open web app</a>
+  </nav>
+
+  <header class="hero">
+    <h1>Write without<br>the noise.</h1>
+    <p>Wren is a calm, free Markdown writer with focus mode, syntax highlighting, live preview and version history. Use it in your browser or download it for Mac.</p>
+    <div class="cta">
+      <a class="btn p" data-dl href="#download">⬇ Download for Mac</a>
+      <a class="btn" href="app/index.html">Use the web version</a>
+    </div>
+    <div class="small">Free forever · no account · your writing never leaves your device</div>
+
+    <div class="shot" aria-hidden="true">
+      <div class="bar"><i></i><i></i><i></i></div>
+      <div class="doc">
+        <div class="dim"><span class="mk">#</span> <span class="h">Morning pages</span><br><br>The coffee was cold and the street outside was quiet.<br><br></div>
+        A <span class="a">small</span> <span class="n">bird</span> <span class="v">landed</span> on the <span class="n">railing</span> and <span class="v">watched</span> me write.<span class="caret"></span>
+        <div class="dim"><br>By noon, the light had moved across the desk and the page was full.</div>
+      </div>
+    </div>
+  </header>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything you expect. And more.</h2>
+    <p class="sub">The essentials of a focused writing app, plus tools that usually cost extra.</p>
+    <div class="grid">
+      <div class="card"><h3>Focus mode</h3><p>Dim everything except the line, sentence or paragraph you are writing. Typewriter scrolling keeps your eyes in one place.</p></div>
+      <div class="card"><h3>Syntax highlight</h3><p>Colour nouns, verbs, adjectives, adverbs and conjunctions to spot weak phrasing and repeated patterns (English, heuristic).</p></div>
+      <div class="card"><h3>Live Markdown</h3><p>Headings, emphasis, quotes, lists, tables, task lists and code blocks are styled as you type. Open a side-by-side preview any time.</p></div>
+      <div class="card"><h3>Library &amp; outline</h3><p>All documents in a searchable sidebar, with an automatic outline of your headings for quick navigation.</p></div>
+      <div class="card"><h3>Version history</h3><p>Automatic snapshots as you write. Restore an earlier version with one click. Nothing is ever lost.</p></div>
+      <div class="card"><h3>Export anywhere</h3><p>Markdown, HTML, PDF, Word (.doc), plain text, or copy as rich text for email and docs.</p></div>
+      <div class="card"><h3>Command palette</h3><p>Press <code>Ctrl/⌘ K</code> to do anything: headings, lists, find &amp; replace, themes, export.</p></div>
+      <div class="card"><h3>Goals &amp; streaks</h3><p>Set a daily word goal, see your progress in the status bar and keep your writing streak alive.</p></div>
+      <div class="card"><h3>Themes</h3><p>Light, dark, sepia or automatic, with your own accent colour, font, size, line height and line width.</p></div>
+      <div class="card"><h3>Find &amp; replace</h3><p>Case-sensitive and regular-expression search across the document, with replace-all.</p></div>
+      <div class="card"><h3>Private by design</h3><p>Documents are stored on your device. No sign-up, no tracking, no cloud. Works offline once loaded.</p></div>
+      <div class="card"><h3>Open &amp; save files</h3><p>Import <code>.md</code> and <code>.txt</code> files by dragging them in, or open a file from disk and save straight back to it.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="dl" id="download">
+  <div class="wrap">
+    <h2>Get Wren</h2>
+    <p class="sub">Free. Pick whichever suits you. Your documents stay on your device either way.</p>
+    <div class="dlgrid">
+      <div class="card">
+        <h3>Mac app</h3>
+        <p>Native window, native menus, works offline. macOS 11 or later (Apple silicon &amp; Intel, one universal build).</p>
+        <div id="macBtns"><a class="btn p" data-dl href="#download">⬇ Download .dmg</a></div>
+      </div>
+      <div class="card">
+        <h3>Web app</h3>
+        <p>Nothing to install. Works in any modern browser on Mac, Windows, Linux, iPad and Android.</p>
+        <a class="btn" href="app/index.html">Open in browser</a>
+      </div>
+    </div>
+    <div class="steps">
+      <strong>First launch on Mac:</strong> open the downloaded <code>Wren.dmg</code> and drag Wren to Applications. Because this build is not signed with an Apple Developer ID, macOS may say the app can’t be verified or is “damaged”. Right-click Wren in Applications, choose <em>Open</em>, then <em>Open</em> again. If it still refuses, run <code>xattr -cr /Applications/Wren.app</code> in Terminal once.
+    </div>
+  </div>
+</section>
+
+<section id="compare">
+  <div class="wrap">
+    <h2>How Wren compares</h2>
+    <p class="sub">The core of a focused writing app, free and open to everyone.</p>
+    <table>
+      <thead><tr><th>Feature</th><th>Wren</th><th>Typical paid writer</th></tr></thead>
+      <tbody>
+        <tr><td>Focus mode (line / sentence / paragraph)</td><td class="yes">✓</td><td>✓</td></tr>
+        <tr><td>Syntax highlight by parts of speech</td><td class="yes">✓</td><td>✓</td></tr>
+        <tr><td>Typewriter scrolling</td><td class="yes">✓</td><td>✓</td></tr>
+        <tr><td>Live preview</td><td class="yes">✓</td><td>✓</td></tr>
+        <tr><td>Library &amp; outline</td><td class="yes">✓</td><td>✓</td></tr>
+        <tr><td>Export to PDF, HTML, Word</td><td class="yes">✓</td><td>✓</td></tr>
+        <tr><td>Version history</td><td class="yes">✓</td><td>some</td></tr>
+        <tr><td>Command palette</td><td class="yes">✓</td><td>—</td></tr>
+        <tr><td>Daily goal &amp; writing streak</td><td class="yes">✓</td><td>—</td></tr>
+        <tr><td>Find &amp; replace with regex</td><td class="yes">✓</td><td>some</td></tr>
+        <tr><td>Runs in a browser</td><td class="yes">✓</td><td>—</td></tr>
+        <tr><td>Price</td><td class="yes">Free</td><td>one-off or subscription</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Questions</h2><p class="sub"></p>
+    <details><summary>Where are my documents stored?</summary><p>On your device only: in the browser’s local storage for the web app, and in the app’s own storage for the Mac app. Export to Markdown at any time for backups, or use “Open file” to edit files on disk directly.</p></details>
+    <details><summary>Does it work offline?</summary><p>Yes. The Mac app is fully offline. The web app caches itself after the first visit and then works without a connection.</p></details>
+    <details><summary>Is syntax highlight accurate?</summary><p>It uses a lightweight English word list and word-ending rules, so it is fast and private but not perfect. Treat it as a hint for spotting patterns, not a grammar checker.</p></details>
+    <details><summary>Do the web app and Mac app share documents?</summary><p>Not automatically, because nothing is uploaded. Move writing between them by exporting to Markdown or by importing files.</p></details>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">Wren · made for writing · <a href="app/index.html">Open web app</a> · <a data-dl href="#download">Download for Mac</a></div>
+</footer>
+<script>
+// Download links point at the newest GitHub Release. On <owner>.github.io/<repo> this is detected
+// automatically; for a custom domain set REPO to "owner/repo".
+(function(){
+  var REPO = '';
+  if(!REPO && /\.github\.io$/.test(location.hostname)) REPO = location.hostname.split('.')[0] + '/' + (location.pathname.split('/')[1] || '');
+  if(!REPO || REPO.slice(-1) === '/') return;
+  var url = 'https://github.com/' + REPO + '/releases/latest/download/Wren.dmg';
+  document.querySelectorAll('[data-dl]').forEach(function(a){ a.href = url; });
+})();
+</script>
+</body>
+</html>

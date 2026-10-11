@@ -1,0 +1,10 @@
+{
+  "name": "Wren",
+  "short_name": "Wren",
+  "description": "A focused Markdown writing app",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#fafaf8",
+  "theme_color": "#fafaf8",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

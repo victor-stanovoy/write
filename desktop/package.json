@@ -1,0 +1,32 @@
+{
+  "name": "wren",
+  "productName": "Wren",
+  "version": "1.0.0",
+  "description": "A calm, focused Markdown writer",
+  "main": "main.js",
+  "author": "Wren",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "./make-dmg.sh",
+    "pack": "electron-builder --mac dir"
+  },
+  "build": {
+    "appId": "app.wren.writer",
+    "productName": "Wren",
+    "files": [
+      "main.js",
+      "preload.js",
+      "app/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": "dir",
+      "icon": "build/icon.icns"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}
