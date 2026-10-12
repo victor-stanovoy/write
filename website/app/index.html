@@ -51,8 +51,10 @@
         <button data-focus="paragraph" title="Focus paragraph">Para</button>
       </div>
       <button id="previewBtn" class="icon" title="Preview (Ctrl/⌘ Shift P)" aria-label="Toggle preview">◧</button>
+      <button id="researchBtn" class="icon" title="Research on Wikipedia (Ctrl/⌘ Shift L)" aria-label="Research on Wikipedia">📖</button>
       <button id="findBtn" class="icon" title="Find & replace (Ctrl/⌘ F)" aria-label="Find">⌕</button>
       <button id="exportBtn" class="icon" title="Export" aria-label="Export">⇪</button>
+      <button id="fsBtn" class="icon" title="Full screen (Ctrl/⌘ Shift Enter)" aria-label="Full screen">⛶</button>
       <button id="themeBtn" class="icon" title="Switch theme" aria-label="Switch theme">◐</button>
       <button id="settingsBtn" class="icon" title="Settings (Ctrl/⌘ ,)" aria-label="Settings">⚙</button>
       <button id="paletteBtn" class="icon" title="Command palette (Ctrl/⌘ K)" aria-label="Command palette">⌘</button>
@@ -82,6 +84,12 @@
         </div>
       </div>
       <div id="preview" hidden></div>
+      <aside id="research" hidden>
+        <div class="res-head"><input id="resInput" type="search" placeholder="Search Wikipedia…" aria-label="Search Wikipedia"><select id="resLang" aria-label="Wikipedia language"></select><button id="resClose" class="icon" aria-label="Close research">✕</button></div>
+        <div id="resBody" class="res-body"></div>
+        <div id="resActions" class="res-actions" hidden><button data-act="quote" title="Insert the text you selected as a quote with its source">❝ Quote selection</button><button data-act="summary">Summary</button><button data-act="link">Link</button><button data-act="cite">Cite</button></div>
+        <div class="res-foot">Text from Wikipedia · CC BY-SA 4.0 · only what you search is sent</div>
+      </aside>
     </div>
 
     <footer id="status">
@@ -152,8 +160,10 @@
       <li><kbd>/</kbd> Slash menu · <kbd>[[</kbd> Link notes</li>
       <li><kbd>Ctrl/⌘ ↩</kbd> Open link / toggle task</li>
       <li><kbd>Alt ↑ ↓</kbd> Move line</li>
+      <li><kbd>Ctrl/⌘ Shift L</kbd> Look up on Wikipedia</li>
+      <li><kbd>Ctrl/⌘ Shift Enter</kbd> Full screen</li>
     </ul>
-    <p class="note">Everything is stored in your browser. Nothing is uploaded anywhere.</p>
+    <p class="note">Everything is stored in your browser. Nothing is uploaded; only the Wikipedia searches you make are sent to Wikipedia.</p>
   </div>
 </div>
 

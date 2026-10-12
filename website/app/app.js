@@ -1188,7 +1188,134 @@ const COMMANDS = [
   ['Move document to Trash', '', () => deleteDoc(curId)],
   ['Reset all settings', '', () => { Object.assign(S, JSON.parse(JSON.stringify(defaults))); saveSettings(); applySettings(); syncSettingsForm(); }]
 ];
-COMMANDS.push(...MORE_COMMANDS);
+/* ───────── Wikipedia research pane + full screen ───────── */
+const WLANGS = [['en', 'English'], ['simple', 'Simple English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español'], ['it', 'Italiano'], ['pt', 'Português'], ['nl', 'Nederlands'], ['pl', 'Polski'], ['ru', 'Русский'], ['ja', '日本語'], ['zh', '中文'], ['ar', 'العربية']];
+const R = { lang: store.get('wikilang', 'en'), cur: null, ctl: null, cache: new Map(), recent: store.get('wikirecent', []), q: '' };
+$('#resLang').innerHTML = WLANGS.map(([c, n]) => '<option value="' + c + '">' + n + '</option>').join('');
+if (!WLANGS.some(l => l[0] === R.lang)) R.lang = 'en';
+$('#resLang').value = R.lang;
+function wapi(params) {
+  const url = 'https://' + R.lang + '.wikipedia.org/w/api.php?' + new URLSearchParams(Object.assign({ format: 'json', formatversion: '2', origin: '*' }, params));
+  if (R.cache.has(url)) return Promise.resolve(R.cache.get(url));
+  if (R.ctl) R.ctl.abort(); R.ctl = new AbortController();
+  return fetch(url, { signal: R.ctl.signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(j => { R.cache.set(url, j); return j; });
+}
+const resBody = () => $('#resBody');
+function resError(e, retry) {
+  if (e && e.name === 'AbortError') return;
+  R.retry = retry; $('#resActions').hidden = true;
+  resBody().innerHTML = '<div class="empty">Couldn’t reach Wikipedia. Check your connection.<br><br><button data-a="retry">Try again</button></div>';
+}
+function resHome() {
+  R.cur = null; $('#resActions').hidden = true;
+  resBody().innerHTML = '<div class="empty">Search Wikipedia without leaving your document. Select text in an article, then use <b>Quote selection</b> to insert it with its source.</div>' +
+    (R.recent.length ? '<h4>Recent</h4>' + R.recent.map(t => '<div class="rr" data-t="' + attr(t) + '"><span class="ph"></span><div><b>' + esc(t) + '</b></div></div>').join('') : '');
+}
+async function resSearch(q, auto) {
+  q = (q || '').trim(); R.q = q;
+  if (!q) return resHome();
+  R.cur = null; $('#resActions').hidden = true; resBody().innerHTML = '<div class="empty">Searching…</div>';
+  try {
+    const j = await wapi({ action: 'query', generator: 'search', gsrsearch: q, gsrlimit: 8, prop: 'description|pageimages', piprop: 'thumbnail', pithumbsize: 80 });
+    const pages = (j.query && j.query.pages || []).slice().sort((a, b) => a.index - b.index);
+    if (auto && pages.length) return resOpen(pages[0].title);
+    resBody().innerHTML = pages.length ? pages.map(p => '<div class="rr" data-t="' + attr(p.title) + '">' + (p.thumbnail ? '<img src="' + attr(p.thumbnail.source) + '" alt="">' : '<span class="ph"></span>') + '<div><b>' + esc(p.title) + '</b><small>' + esc(p.description || '') + '</small></div></div>').join('') : '<div class="empty">No results for “' + esc(q) + '”.</div>';
+  } catch (e) { resError(e, () => resSearch(q, auto)); }
+}
+async function resOpen(title) {
+  resBody().innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const j = await wapi({ action: 'query', prop: 'extracts|pageimages|description|info', titles: title, redirects: 1, exintro: 1, explaintext: 1, inprop: 'url', piprop: 'thumbnail', pithumbsize: 420 });
+    const p = j.query && j.query.pages && j.query.pages[0];
+    if (!p || p.missing) { resBody().innerHTML = '<div class="empty">Article not found.</div>'; return; }
+    R.cur = { title: p.title, url: p.fullurl || ('https://' + R.lang + '.wikipedia.org/wiki/' + encodeURIComponent(p.title.replace(/ /g, '_'))), intro: (p.extract || '').trim(), desc: p.description || '', thumb: p.thumbnail && p.thumbnail.source };
+    R.recent = [p.title].concat(R.recent.filter(t => t !== p.title)).slice(0, 12); store.set('wikirecent', R.recent);
+    const c = R.cur;
+    resBody().innerHTML = '<button class="rback" data-a="back">← ' + (R.q ? 'Results' : 'Back') + '</button><h2>' + esc(c.title) + '</h2>' + (c.desc ? '<div class="rdesc">' + esc(c.desc) + '</div>' : '') +
+      (c.thumb ? '<img class="rimg" src="' + attr(c.thumb) + '" alt="">' : '') + '<div class="rtext">' + paras(c.intro) + '</div><button class="rfull" data-a="full">Read full article</button>';
+    $('#resActions').hidden = false; resBody().scrollTop = 0;
+  } catch (e) { resError(e, () => resOpen(title)); }
+}
+const paras = t => t.split(/\n+/).filter(Boolean).map(x => '<p>' + esc(x) + '</p>').join('');
+async function resFull() {
+  if (!R.cur) return;
+  const btn = resBody().querySelector('.rfull'); if (btn) btn.textContent = 'Loading…';
+  try {
+    const j = await wapi({ action: 'query', prop: 'extracts', titles: R.cur.title, redirects: 1, explaintext: 1 });
+    const text = (j.query.pages[0].extract || ''), skip = /^(see also|references|external links|further reading|notes|bibliography|sources|citations|footnotes)$/i;
+    let html = '', skipLevel = 0;
+    for (const line of text.split('\n')) {
+      const m = line.match(/^(={2,6})\s*(.*?)\s*\1\s*$/);
+      if (m) { const lv = m[1].length; if (skipLevel && lv > skipLevel) continue; skipLevel = skip.test(m[2]) ? lv : 0; if (!skipLevel) html += '<h3>' + esc(m[2]) + '</h3>'; continue; }
+      if (!skipLevel && line.trim()) html += '<p>' + esc(line) + '</p>';
+    }
+    const rt = resBody().querySelector('.rtext'); if (rt) rt.innerHTML = html || paras(R.cur.intro);
+    if (btn) btn.remove(); resBody().scrollTop = 0;
+  } catch (e) { resError(e, resFull); }
+}
+function resSelection() {
+  const s = window.getSelection ? window.getSelection() : null;
+  return (s && !s.isCollapsed && resBody().contains(s.anchorNode)) ? s.toString().trim() : '';
+}
+function insertBlock(md) {
+  const t = ed.value, a = ed.selectionStart;
+  const pre = a > 0 && t[a - 1] !== '\n' ? '\n\n' : (a > 1 && t[a - 2] !== '\n' ? '\n' : '');
+  insertText(pre + md + '\n\n');
+}
+function resAct(act) {
+  const c = R.cur; if (!c) return;
+  const src = '— [' + c.title + '](' + c.url + '), Wikipedia';
+  const quote = x => x.split(/\n+/).map(l => '> ' + l).join('\n>\n') + '\n>\n> ' + src;
+  if (act === 'quote') { const s = resSelection(); if (!s) return toast('Select some text in the article first'); insertBlock(quote(s)); }
+  else if (act === 'summary') insertBlock(quote(c.intro.split(/\n+/).slice(0, 2).join('\n')));
+  else if (act === 'link') insertText('[' + c.title + '](' + c.url + ')');
+  else if (act === 'cite') insertText('Wikipedia contributors. “' + c.title + '.” Wikipedia, The Free Encyclopedia. Accessed ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) + '. ' + c.url);
+  ed.focus(); toast('Inserted');
+}
+function openResearch(q) {
+  $('#research').hidden = false; $('#researchBtn').style.background = 'var(--panel)';
+  if (typeof q === 'string' && q.trim()) { $('#resInput').value = q.trim(); resSearch(q, true); }
+  else if (!resBody().innerHTML.trim()) resHome();
+  $('#resInput').focus(); $('#resInput').select();
+}
+function closeResearch() { $('#research').hidden = true; $('#researchBtn').style.background = ''; ed.focus(); }
+function toggleResearch() { if ($('#research').hidden) openResearch(); else closeResearch(); }
+function lookupSelection() {
+  let q = ed.value.slice(ed.selectionStart, ed.selectionEnd).trim().replace(/\s+/g, ' ').slice(0, 120);
+  if (!q) { const t = ed.value, p = ed.selectionStart; let a = p, b = p; while (a > 0 && /[\p{L}\p{N}'’-]/u.test(t[a - 1])) a--; while (b < t.length && /[\p{L}\p{N}'’-]/u.test(t[b])) b++; q = t.slice(a, b); }
+  openResearch(q);
+}
+function toggleFullscreen() {
+  const d = document, el = d.documentElement;
+  try {
+    if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+    else if (el.requestFullscreen || el.webkitRequestFullscreen) (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    else toast('Full screen is not available here');
+  } catch (e) { toast('Full screen is not available here'); }
+}
+let resTimer;
+$('#resInput').addEventListener('input', () => { clearTimeout(resTimer); resTimer = setTimeout(() => resSearch($('#resInput').value), 350); });
+$('#resInput').addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(resTimer); resSearch($('#resInput').value); } else if (e.key === 'Escape') { e.stopPropagation(); closeResearch(); } });
+$('#resLang').addEventListener('change', e => { R.lang = e.target.value; store.set('wikilang', R.lang); if (R.cur) resOpen(R.cur.title); else resSearch($('#resInput').value); });
+$('#resClose').onclick = closeResearch; $('#researchBtn').onclick = toggleResearch; $('#fsBtn').onclick = toggleFullscreen;
+$('#resActions').addEventListener('mousedown', e => e.preventDefault());
+$('#resActions').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b) resAct(b.dataset.act); });
+resBody().addEventListener('click', e => {
+  const rr = e.target.closest('.rr'); if (rr) return resOpen(rr.dataset.t);
+  const a = e.target.closest('[data-a]'); if (!a) return;
+  if (a.dataset.a === 'back') { if (R.q) resSearch(R.q); else resHome(); } else if (a.dataset.a === 'full') resFull(); else if (a.dataset.a === 'retry' && R.retry) R.retry();
+});
+const RESEARCH_COMMANDS = [
+  ['Research on Wikipedia', mod_() + ' ⇧ L', () => toggleResearch()],
+  ['Look up selection / word on Wikipedia', mod_() + ' ⇧ L', lookupSelection],
+  ['Wikipedia: insert summary of open article', '', () => resAct('summary')],
+  ['Wikipedia: insert link to open article', '', () => resAct('link')],
+  ['Wikipedia: insert citation', '', () => resAct('cite')],
+  ['Toggle full screen', mod_() + ' ⇧ ↩', toggleFullscreen],
+  ['Full screen + Zen mode', '', () => { toggleFullscreen(); if (!document.body.classList.contains('zen')) toggleZen(); }]
+];
+
+COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS);
 let palSel = 0, palItems = [], palMode = 'cmd';
 function openPalette(mode, prefill) {
   palMode = mode === 'doc' ? 'doc' : 'cmd'; palSel = 0;
@@ -1234,7 +1361,7 @@ ed.addEventListener('input', () => {
 ed.addEventListener('keydown', e => {
   document.body.classList.add('typing');
   if (popKey(e)) return;
-  if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key === 'Enter') { e.preventDefault(); ctrlEnter(); return; }
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter') { e.preventDefault(); ctrlEnter(); return; }
   if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); moveLines(e.key === 'ArrowUp' ? -1 : 1); return; }
   if (e.key === 'Backspace') { if (onBackspace(e)) return; }
   else if (e.key === 'Enter' && !(e.metaKey || e.ctrlKey || e.altKey)) onEnter(e);
@@ -1278,6 +1405,7 @@ document.addEventListener('keydown', e => {
     if (!$('#settings').hidden) return closeSettings();
     if (!$('#exportMenu').hidden) { $('#exportMenu').hidden = true; return; }
     if (!$('#findbar').hidden) return toggleFind(false);
+    if (!$('#research').hidden) return closeResearch();
     if (document.body.classList.contains('zen')) return toggleZen();
   }
   if (!m) return;
@@ -1289,6 +1417,8 @@ document.addEventListener('keydown', e => {
   else if (k === 'i' && !e.shiftKey) run(() => wrap('*'));
   else if (k === 'p' && e.shiftKey) run(() => togglePreview());
   else if (k === 'p') run(() => openPalette('doc'));
+  else if (k === 'l' && e.shiftKey) run(lookupSelection);
+  else if (k === 'enter' && e.shiftKey) run(toggleFullscreen);
   else if (k === 'f' && e.shiftKey) run(cycleFocus);
   else if (k === 'f') run(() => toggleFind(true));
   else if (k === 'n' && !e.shiftKey) run(() => newDoc());
