@@ -17,6 +17,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const defaults = {
   theme: 'auto', accent: '#10a5c8', font: 'mono', size: 18, lh: 1.7, width: 680,
   focus: 'off', typewriter: true, spell: false, dailyGoal: 500, sidebar: true, preview: false,
+  smart: true, autopair: true, fillers: false,
   pos: { noun: false, verb: false, adj: false, adv: false, conj: false }
 };
 const S = Object.assign({}, defaults, store.get('settings', {}));
@@ -72,22 +73,44 @@ if (!docs || !Object.keys(docs).length) {
   store.set('docs', docs);
   store.set('current', id);
 }
+// items that sat in the Trash for more than 30 days are removed for good
+for (const id of Object.keys(docs)) if (docs[id].trashed && Date.now() - docs[id].trashed > 30 * 864e5) delete docs[id];
 let curId = store.get('current', null);
-if (!docs[curId]) curId = Object.keys(docs).sort((a, b) => docs[b].updated - docs[a].updated)[0];
+if (!docs[curId] || docs[curId].trashed) {
+  const live = Object.values(docs).filter(d => !d.trashed).sort((a, b) => b.updated - a.updated);
+  if (live.length) curId = live[0].id;
+  else { curId = uid(); docs[curId] = { id: curId, text: '# ', updated: Date.now(), history: [] }; }
+}
+let _tsT = 0, _tsS = new Set();
 const handles = {}; // id -> FileSystemFileHandle (session only)
 
 function titleOf(d) {
-  const lines = d.text.split('\n');
-  for (const l of lines) {
-    const t = l.replace(/^#+\s*/, '').replace(/[*_`>~\[\]]/g, '').trim();
-    if (t) return t.slice(0, 80);
+  const t = d.text; let i = 0;
+  while (i <= t.length) {
+    let j = t.indexOf('\n', i); if (j < 0) j = t.length;
+    const l = t.slice(i, j).replace(/^#+\s*/, '').replace(/[*_`>~\[\]]/g, '').trim();
+    if (l) return l.slice(0, 80);
+    if (j >= t.length) break;
+    i = j + 1;
   }
   return 'Untitled';
 }
+const norm = x => x.trim().toLowerCase();
+const unesc = x => x.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+const attr = x => esc(x).replace(/"/g, '&quot;');
+function liveDocs() { return Object.values(docs).filter(d => !d.trashed); }
+function textOf(d) { return d.id === curId ? ed.value : d.text; }
+function titleSet() {
+  const n = Date.now();
+  if (n - _tsT > 1000) { _tsS = new Set(liveDocs().map(d => norm(titleOf({ text: textOf(d) })))); _tsT = n; }
+  return _tsS;
+}
+const hasDoc = x => titleSet().has(norm(x));
 const countWords = t => (t.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 
 let saveTimer = null, lastSnap = 0;
 function persist() {
+  _tsT = 0;
   const ok = store.set('docs', docs);
   store.set('current', curId);
   const el = $('#stSaved');
@@ -138,14 +161,16 @@ function posOf(w) {
   if (l.length >= 4) return 'noun';
   return null;
 }
+const FILL = W('very really just quite actually basically literally simply somewhat rather perhaps maybe probably honestly definitely totally extremely fairly clearly obviously certainly seriously essentially virtually');
 function posWrap(text) {
-  if (!S.pos.noun && !S.pos.verb && !S.pos.adj && !S.pos.adv && !S.pos.conj) return esc(text);
+  const anyPos = S.pos.noun || S.pos.verb || S.pos.adj || S.pos.adv || S.pos.conj;
+  if (!anyPos && !S.fillers) return esc(text);
   let out = '', last = 0, m;
   const re = /[A-Za-zÀ-ÿ']+/g;
   while ((m = re.exec(text))) {
     out += esc(text.slice(last, m.index));
-    const p = posOf(m[0]);
-    out += (p && S.pos[p]) ? '<span class="' + p + '">' + esc(m[0]) + '</span>' : esc(m[0]);
+    if (S.fillers && FILL.has(m[0].toLowerCase())) out += '<span class="fill">' + esc(m[0]) + '</span>';
+    else { const p = anyPos ? posOf(m[0]) : null; out += (p && S.pos[p]) ? '<span class="' + p + '">' + esc(m[0]) + '</span>' : esc(m[0]); }
     last = m.index + m[0].length;
   }
   return out + esc(text.slice(last));
@@ -163,6 +188,7 @@ function inl(text) {
     else if (/^[*_]/.test(t)) out += '<span class="mk">' + t[0] + '</span><span class="i">' + posWrap(t.slice(1, -1)) + '</span><span class="mk">' + t[0] + '</span>';
     else if (t[0] === '`') out += '<span class="code"><span class="mk">`</span>' + esc(t.slice(1, -1)) + '<span class="mk">`</span></span>';
     else if (t.startsWith('~~')) out += '<span class="mk">~~</span><span class="s">' + posWrap(t.slice(2, -2)) + '</span><span class="mk">~~</span>';
+    else if (t.startsWith('[[')) out += '<span class="wk' + (hasDoc(t.slice(2, -2).split('|')[0]) ? '' : ' miss') + '">' + esc(t) + '</span>';
     else out += '<span class="lk">' + esc(t) + '</span>';
     last = m.index + t.length;
   }
@@ -239,13 +265,14 @@ function renderNow() {
 }
 function render() { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(renderNow); }
 
-function caretY() {
+function caretPos() {
   measure.style.width = ed.clientWidth + 'px';
   measure.textContent = ed.value.slice(0, ed.selectionEnd);
-  const sp = document.createElement('span'); sp.textContent = '​';
+  const sp = document.createElement('span'); sp.textContent = '\u200b';
   measure.appendChild(sp);
-  return inner.offsetTop + sp.offsetTop;
+  return { x: inner.offsetLeft + sp.offsetLeft, y: inner.offsetTop + sp.offsetTop };
 }
+const caretY = () => caretPos().y;
 function ensureCaret(smooth) {
   const y = caretY();
   const lh = parseFloat(getComputedStyle(bd).lineHeight) || 28;
@@ -293,27 +320,56 @@ function fmtDate(t) {
   if (d.toDateString() === n.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
+let showTrash = false;
 function renderLibrary() {
+  const el = $('#libList'); el.innerHTML = '';
+  const trashed = Object.values(docs).filter(d => d.trashed).sort((a, b) => b.trashed - a.trashed);
+  if (showTrash) {
+    const head = document.createElement('div'); head.className = 'trashhead';
+    head.innerHTML = '<button data-a="back">← Library</button><button data-a="empty"' + (trashed.length ? '' : ' disabled') + '>Empty Trash</button>';
+    head.onclick = e => {
+      const a = e.target.closest('button')?.dataset.a;
+      if (a === 'back') { showTrash = false; renderLibrary(); }
+      if (a === 'empty' && trashed.length && confirm('Permanently delete ' + trashed.length + ' document(s)?')) { trashed.forEach(d => delete docs[d.id]); persist(); renderLibrary(); }
+    };
+    el.appendChild(head);
+    if (!trashed.length) el.insertAdjacentHTML('beforeend', '<div class="empty">Trash is empty. Deleted documents stay here for 30 days.</div>');
+    for (const d of trashed) {
+      const div = document.createElement('div'); div.className = 'item';
+      div.innerHTML = '<div class="t">' + esc(titleOf(d)) + '</div><div class="s">Deleted ' + esc(fmtDate(d.trashed)) + ' · ' + countWords(d.text) + ' w</div><div class="acts"><button data-a="restore" title="Restore">↩</button><button data-a="purge" title="Delete forever">✕</button></div>';
+      div.onclick = e => {
+        const a = e.target.closest('button')?.dataset.a;
+        if (a === 'restore') { delete d.trashed; d.updated = Date.now(); persist(); renderLibrary(); toast('Restored'); }
+        else if (a === 'purge' && confirm('Delete this document forever?')) { delete docs[d.id]; persist(); renderLibrary(); }
+      };
+      el.appendChild(div);
+    }
+    return;
+  }
   const q = $('#search').value.trim().toLowerCase();
-  const list = Object.values(docs).filter(d => !q || d.text.toLowerCase().includes(q)).sort((a, b) => b.updated - a.updated);
-  const el = $('#libList');
-  el.innerHTML = '';
-  if (!list.length) { el.innerHTML = '<div class="empty">No documents found.</div>'; return; }
+  const list = liveDocs().filter(d => !q || textOf(d).toLowerCase().includes(q)).sort((a, b) => (!!b.pinned - !!a.pinned) || b.updated - a.updated);
+  if (!list.length) el.innerHTML = '<div class="empty">No documents found.</div>';
   for (const d of list) {
-    const txt = d.id === curId ? ed.value : d.text;
+    const txt = textOf(d);
     const div = document.createElement('div');
     div.className = 'item' + (d.id === curId ? ' cur' : '');
     const body = txt.replace(/^#+\s*/gm, '').replace(/\s+/g, ' ').trim();
-    div.innerHTML = '<div class="t">' + esc(titleOf({ text: txt })) + '</div><div class="s">' + esc(fmtDate(d.updated)) + ' · ' + countWords(txt) + ' w · ' + esc(body.slice(0, 50)) + '</div>' +
-      '<div class="acts"><button data-a="dup" title="Duplicate">⧉</button><button data-a="del" title="Delete">🗑</button></div>';
+    div.innerHTML = '<div class="t">' + (d.pinned ? '<span class="pin">★</span> ' : '') + esc(titleOf({ text: txt })) + '</div><div class="s">' + esc(fmtDate(d.updated)) + ' · ' + countWords(txt) + ' w · ' + esc(body.slice(0, 50)) + '</div>' +
+      '<div class="acts"><button data-a="pin" title="' + (d.pinned ? 'Unpin' : 'Pin to top') + '">' + (d.pinned ? '★' : '☆') + '</button><button data-a="dup" title="Duplicate">⧉</button><button data-a="del" title="Move to Trash">🗑</button></div>';
     div.onclick = e => {
       const a = e.target.closest('button')?.dataset.a;
       if (a === 'del') return deleteDoc(d.id);
       if (a === 'dup') return duplicateDoc(d.id);
+      if (a === 'pin') { d.pinned = !d.pinned; persist(); return renderLibrary(); }
       openDoc(d.id);
       if (innerWidth <= 820) toggleSidebar(false);
     };
     el.appendChild(div);
+  }
+  if (trashed.length) {
+    const tr = document.createElement('div'); tr.className = 'trashrow'; tr.textContent = '🗑 Trash (' + trashed.length + ')';
+    tr.onclick = () => { showTrash = true; renderLibrary(); };
+    el.appendChild(tr);
   }
 }
 function renderOutline() {
@@ -352,19 +408,29 @@ function renderHistory() {
     el.appendChild(div);
   });
 }
+const LISTS = { lib: 'libList', outline: 'outlineList', links: 'linksList', insights: 'insightsList', history: 'historyList' };
 function setTab(t) {
   tab = t;
   $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-  $('#libList').hidden = t !== 'lib'; $('#outlineList').hidden = t !== 'outline'; $('#historyList').hidden = t !== 'history';
-  if (t === 'outline') renderOutline(); if (t === 'history') renderHistory(); if (t === 'lib') renderLibrary();
+  for (const k in LISTS) $('#' + LISTS[k]).hidden = k !== t;
+  refreshPanel();
+}
+let panelTimer;
+function refreshPanel(delay) {
+  clearTimeout(panelTimer);
+  const go = () => {
+    if (tab === 'outline') renderOutline(); else if (tab === 'history') renderHistory(); else if (tab === 'lib') renderLibrary();
+    else if (tab === 'links') renderLinks(); else if (tab === 'insights') renderInsights();
+  };
+  if (delay) panelTimer = setTimeout(go, delay); else go();
 }
 function openDoc(id) {
-  flush();
+  flush(); hidePop(); showTrash = false;
   curId = id; const d = docs[id];
   ed.value = d.text; lastWords = null; store.set('current', id);
   ed.setSelectionRange(0, 0);
   scroller.scrollTop = 0;
-  render(); renderLibrary(); if (tab !== 'lib') setTab(tab); updatePreview();
+  render(); renderLibrary(); if (tab !== 'lib') refreshPanel(); updatePreview();
   setTimeout(() => ed.focus(), 0);
 }
 function newDoc(text = '') {
@@ -375,22 +441,25 @@ function newDoc(text = '') {
   ed.focus();
 }
 function deleteDoc(id) {
-  if (!confirm('Delete "' + titleOf(docs[id]) + '"? This cannot be undone.')) return;
-  delete docs[id]; delete handles[id];
-  if (!Object.keys(docs).length) { newDoc('# '); ed.setSelectionRange(2, 2); return; }
-  if (id === curId) openDoc(Object.values(docs).sort((a, b) => b.updated - a.updated)[0].id);
-  persist(); renderLibrary();
+  const d = docs[id]; if (!d) return;
+  if (id === curId) d.text = ed.value;
+  d.trashed = Date.now(); delete handles[id];
+  if (id === curId) {
+    const next = liveDocs().sort((a, b) => b.updated - a.updated)[0];
+    if (next) openDoc(next.id); else { newDoc('# '); ed.setSelectionRange(2, 2); }
+  }
+  persist(); renderLibrary(); toast('Moved to Trash');
 }
 function duplicateDoc(id) {
-  const t = id === curId ? ed.value : docs[id].text;
-  newDoc(t); toast('Duplicated');
+  newDoc(textOf(docs[id])); toast('Duplicated');
 }
 
 /* ───────── editing helpers ───────── */
 function insertText(str) {
   ed.focus();
+  if (str === '' && ed.selectionStart === ed.selectionEnd) return;
   let ok = false;
-  try { ok = document.execCommand('insertText', false, str); } catch (e) { }
+  try { ok = str === '' ? document.execCommand('delete') : document.execCommand('insertText', false, str); } catch (e) { }
   if (!ok) { ed.setRangeText(str, ed.selectionStart, ed.selectionEnd, 'end'); ed.dispatchEvent(new Event('input', { bubbles: true })); }
 }
 function replaceRange(a, b, str, selA, selB) {
@@ -453,9 +522,10 @@ function onTab(e) {
 /* ───────── markdown → HTML ───────── */
 const slug = s => s.toLowerCase().replace(/<[^>]+>/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-');
 function inlineMd(s) {
-  const codes = [];
+  const codes = [], wikis = [];
   s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
   s = esc(s);
+  s = s.replace(/\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g, (_, t, al) => { wikis.push('<a class="wiki' + (hasDoc(unesc(t)) ? '' : ' miss') + '" data-wiki="' + t.trim().replace(/"/g, '&quot;') + '" href="#wiki">' + (al || t) + '</a>'); return '\u0001' + (wikis.length - 1) + '\u0001'; });
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, alt, src, ti) => '<img alt="' + alt + '" src="' + safeUrl(src) + '"' + (ti ? ' title="' + ti + '"' : '') + '>');
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, tx, href) => '<a href="' + safeUrl(href) + '" target="_blank" rel="noopener">' + tx + '</a>');
   s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
@@ -463,6 +533,7 @@ function inlineMd(s) {
   s = s.replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\*)/g, '$1<em>$2</em>').replace(/(^|[^_\w])_([^_\s][^_]*)_(?!\w)/g, '$1<em>$2</em>');
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   s = s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<code>' + esc(codes[i]) + '</code>');
+  s = s.replace(/\u0001(\d+)\u0001/g, (_, i) => wikis[i]);
   return s;
 }
 function safeUrl(u) { u = u.replace(/&amp;/g, '&'); return /^\s*(javascript|data:text|vbscript):/i.test(u) ? '#' : esc(u).replace(/"/g, '&quot;'); }
@@ -537,7 +608,9 @@ function togglePreview(force) {
 
 /* ───────── export ───────── */
 const EXPORT_CSS = 'body{font:17px/1.7 Georgia,"Times New Roman",serif;max-width:720px;margin:48px auto;padding:0 24px;color:#222}h1,h2,h3,h4{font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.25;margin:1.6em 0 .5em}a{color:#0b7fa0}code{font-family:Menlo,Consolas,monospace;font-size:.88em;background:#f1f1ee;padding:.1em .35em;border-radius:4px}pre{background:#f1f1ee;padding:14px 16px;border-radius:8px;overflow:auto}pre code{background:none;padding:0}blockquote{margin:1em 0;padding-left:1em;border-left:3px solid #10a5c8;color:#555}table{border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 12px}img{max-width:100%}hr{border:0;border-top:1px solid #ddd}li.task{list-style:none;margin-left:-1.2em}';
-const fullHtml = () => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(titleOf({ text: ed.value })) + '</title><style>' + EXPORT_CSS + '</style></head><body>' + renderMarkdown(ed.value) + '</body></html>';
+const unwiki = h => h.replace(/<a class="wiki[^"]*"[^>]*>([\s\S]*?)<\/a>/g, '<span>$1</span>');
+const exportBody = () => unwiki(renderMarkdown(ed.value));
+const fullHtml = () => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(titleOf({ text: ed.value })) + '</title><style>' + EXPORT_CSS + '</style></head><body>' + exportBody() + '</body></html>';
 const fileName = ext => (titleOf({ text: ed.value }).replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 60) || 'Untitled') + '.' + ext;
 function download(name, data, type) {
   const url = URL.createObjectURL(new Blob([data], { type }));
@@ -563,13 +636,13 @@ const EXPORTS = {
   md: () => download(fileName('md'), ed.value, 'text/markdown'),
   txt: () => download(fileName('txt'), plainText(), 'text/plain'),
   html: () => download(fileName('html'), fullHtml(), 'text/html'),
-  doc: () => download(fileName('doc'), '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + esc(titleOf({ text: ed.value })) + '</title></head><body>' + renderMarkdown(ed.value) + '</body></html>', 'application/msword'),
+  doc: () => download(fileName('doc'), '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + esc(titleOf({ text: ed.value })) + '</title></head><body>' + exportBody() + '</body></html>', 'application/msword'),
   pdf: () => {
     const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
     document.body.appendChild(f); f.srcdoc = fullHtml();
     f.onload = () => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 60000); };
   },
-  copyhtml: async () => { try { const html = renderMarkdown(ed.value); await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([ed.value], { type: 'text/plain' }) })]); toast('Copied rich text'); } catch (e) { toast('Copy not allowed here'); } },
+  copyhtml: async () => { try { const html = exportBody(); await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([ed.value], { type: 'text/plain' }) })]); toast('Copied rich text'); } catch (e) { toast('Copy not allowed here'); } },
   copymd: async () => { try { await navigator.clipboard.writeText(ed.value); toast('Markdown copied'); } catch (e) { toast('Copy not allowed here'); } }
 };
 function showExportMenu() {
@@ -689,6 +762,388 @@ $$('#settings [data-k]').forEach(el => {
   });
 });
 
+/* ───────── popups: slash menu + [[wiki]] autocomplete ───────── */
+const SLASH = [
+  { label: 'Heading 1', k: 'h1 title', desc: '#', snip: '# $0' },
+  { label: 'Heading 2', k: 'h2 section', desc: '##', snip: '## $0' },
+  { label: 'Heading 3', k: 'h3', desc: '###', snip: '### $0' },
+  { label: 'Bulleted list', k: 'ul bullets list', desc: '-', snip: '- $0' },
+  { label: 'Numbered list', k: 'ol numbers list', desc: '1.', snip: '1. $0' },
+  { label: 'Task', k: 'todo checkbox check', desc: '[ ]', snip: '- [ ] $0' },
+  { label: 'Quote', k: 'blockquote cite', desc: '>', snip: '> $0' },
+  { label: 'Callout', k: 'note tip warning', desc: '> Note', snip: '> **Note**\n> $0' },
+  { label: 'Code block', k: 'code fence pre', desc: '```', snip: '```\n$0\n```' },
+  { label: 'Table', k: 'grid columns', desc: '| a | b |', snip: '| Column | Column |\n| ------ | ------ |\n| $0 |  |' },
+  { label: 'Divider', k: 'hr rule line separator', desc: '---', snip: '---\n$0' },
+  { label: 'Link', k: 'url href', desc: '[text](url)', snip: '[$0](url)' },
+  { label: 'Image', k: 'picture photo', desc: '![alt](url)', snip: '![$0](url)' },
+  { label: 'Wiki link', k: 'note backlink', desc: '[[Note]]', snip: '[[$0]]' },
+  { label: 'Today’s date', k: 'date today', desc: '', get snip() { return new Date().toLocaleDateString(undefined, { dateStyle: 'full' }) + '$0'; } },
+  { label: 'Time', k: 'clock now', desc: '', get snip() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '$0'; } },
+  { label: 'Table of contents', k: 'toc outline', desc: '', snip: '', run: () => insertTOC() }
+];
+const pop = { on: false, items: [], sel: 0, mode: '', q: '', from: 0 };
+const cleanTitle = x => x.replace(/[\[\]|]/g, '').trim();
+function inCode(t, p) {
+  const before = t.slice(0, p);
+  if ((before.match(/^\s*(```|~~~)/gm) || []).length % 2 === 1) return true;
+  const ls = before.lastIndexOf('\n') + 1;
+  return ((before.slice(ls).match(/`/g) || []).length % 2) === 1;
+}
+function hidePop() { pop.on = false; const el = $('#pop'); if (el) el.hidden = true; }
+function drawPop() {
+  const el = $('#pop');
+  el.innerHTML = pop.items.map((it, i) => '<div class="pi' + (i === pop.sel ? ' on' : '') + '" data-i="' + i + '"><span>' + esc(it.label) + '</span><small>' + esc(it.desc || '') + '</small></div>').join('');
+  el.hidden = false;
+  const { x, y } = caretPos(), lh = parseFloat(getComputedStyle(bd).lineHeight) || 28, w = el.offsetWidth || 260;
+  el.style.top = (y + lh + 4) + 'px';
+  el.style.left = Math.max(0, Math.min(x, $('#column').clientWidth - w)) + 'px';
+  const on = el.querySelector('.on');
+  if (on) { if (on.offsetTop < el.scrollTop) el.scrollTop = on.offsetTop; else if (on.offsetTop + on.offsetHeight > el.scrollTop + el.clientHeight) el.scrollTop = on.offsetTop + on.offsetHeight - el.clientHeight; }
+}
+function updatePop() {
+  if (document.activeElement !== ed || ed.selectionStart !== ed.selectionEnd) return hidePop();
+  const t = ed.value, p = ed.selectionStart, ls = t.lastIndexOf('\n', p - 1) + 1, before = t.slice(ls, p);
+  let m, items = [], mode = '', q = '', from = 0;
+  if ((m = before.match(/\[\[([^\]\n]*)$/))) {
+    mode = 'wiki'; q = m[1]; from = p - q.length;
+    const ql = q.toLowerCase();
+    items = liveDocs().filter(d => d.id !== curId).map(d => ({ label: cleanTitle(titleOf({ text: d.text })), desc: fmtDate(d.updated) }))
+      .filter(it => it.label && (!ql || it.label.toLowerCase().includes(ql))).slice(0, 8);
+  } else if (!inCode(t, p) && (m = before.match(/(?:^|\s)\/([\w-]*)$/))) {
+    mode = 'slash'; q = m[1]; from = p - q.length - 1;
+    const ql = q.toLowerCase();
+    items = SLASH.filter(it => !ql || it.label.toLowerCase().includes(ql) || it.k.includes(ql));
+  }
+  if (!items.length) return hidePop();
+  if (!pop.on || pop.mode !== mode || pop.q !== q) pop.sel = 0;
+  Object.assign(pop, { on: true, mode, q, from, items });
+  drawPop();
+}
+function choosePop(i) {
+  const it = pop.items[i]; if (!it) return;
+  const t = ed.value, p = ed.selectionStart, mode = pop.mode, from = pop.from;
+  hidePop();
+  if (mode === 'wiki') {
+    const end = t.slice(p, p + 2) === ']]' ? p + 2 : p;
+    replaceRange(from, end, it.label + ']]', from + it.label.length + 2);
+  } else if (it.run) {
+    replaceRange(from, p, '', from); it.run();
+  } else {
+    const c = it.snip.indexOf('$0'), text = it.snip.replace('$0', '');
+    replaceRange(from, p, text, from + (c < 0 ? text.length : c));
+  }
+  ed.focus(); updatePop();
+}
+function popKey(e) {
+  if (!pop.on || e.isComposing) return false;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); pop.sel = (pop.sel + (e.key === 'ArrowDown' ? 1 : -1) + pop.items.length) % pop.items.length; drawPop(); return true; }
+  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); choosePop(pop.sel); return true; }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hidePop(); return true; }
+  return false;
+}
+$('#pop').addEventListener('mousedown', e => { e.preventDefault(); const it = e.target.closest('.pi'); if (it) choosePop(+it.dataset.i); });
+
+/* ───────── wiki links ───────── */
+const WIKI_RE = /\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g;
+function wikiAtCaret() {
+  const t = ed.value, p = ed.selectionStart, [la, lb] = lineBounds(t, p), line = t.slice(la, lb), rel = p - la;
+  const re = new RegExp(WIKI_RE.source, 'g'); let m;
+  while ((m = re.exec(line))) if (rel >= m.index && rel <= m.index + m[0].length) return m[1].trim();
+  return null;
+}
+function openWiki(title) {
+  const k = norm(title), d = liveDocs().find(x => norm(titleOf({ text: textOf(x) })) === k);
+  if (d) { if (d.id !== curId) openDoc(d.id); else toast('This is the note'); return; }
+  newDoc('# ' + title + '\n\n'); ed.setSelectionRange(ed.value.length, ed.value.length); toast('Created “' + title + '”');
+}
+function ctrlEnter() {
+  const w = wikiAtCaret(); if (w) return openWiki(w);
+  const t = ed.value, p = ed.selectionStart, [la, lb] = lineBounds(t, p), line = t.slice(la, lb);
+  const tm = line.match(/^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\]/);
+  if (tm) { const i = la + tm[1].length + 1; replaceRange(i, i + 1, tm[2] === ' ' ? 'x' : ' ', p); return; }
+  toast('Nothing to open or toggle here');
+}
+function renderLinks() {
+  const el = $('#linksList'), txt = ed.value, key = norm(titleOf({ text: txt }));
+  const back = [];
+  for (const d of liveDocs()) {
+    if (d.id === curId) continue;
+    const re = new RegExp(WIKI_RE.source, 'g'); let m;
+    while ((m = re.exec(d.text))) if (norm(m[1]) === key) { const [a, b] = lineBounds(d.text, m.index); back.push({ d, snip: d.text.slice(a, b).trim().slice(0, 90) }); break; }
+  }
+  const out = [], seen = new Set(); const re2 = new RegExp(WIKI_RE.source, 'g'); let m2;
+  while ((m2 = re2.exec(txt))) { const k = norm(m2[1]); if (!seen.has(k) && k !== key) { seen.add(k); out.push(m2[1].trim()); } }
+  let h = '<h4>Backlinks <span>' + back.length + '</span></h4>';
+  h += back.length ? back.map(b => '<div class="item" data-doc="' + b.d.id + '"><div class="t">' + esc(titleOf(b.d)) + '</div><div class="s">' + esc(b.snip) + '</div></div>').join('') : '<div class="empty">No notes link here yet. Type <code>[[</code> in another note to link to this one.</div>';
+  h += '<h4>Links in this note <span>' + out.length + '</span></h4>';
+  h += out.length ? out.map(o => '<div class="item" data-wiki="' + attr(o) + '"><div class="t">' + esc(o) + (hasDoc(o) ? '' : ' <small>(new)</small>') + '</div></div>').join('') : '<div class="empty">Link notes together with <code>[[Note title]]</code>.</div>';
+  el.innerHTML = h;
+}
+$('#linksList').addEventListener('click', e => {
+  const it = e.target.closest('.item'); if (!it) return;
+  if (it.dataset.doc) openDoc(it.dataset.doc); else if (it.dataset.wiki) openWiki(it.dataset.wiki);
+});
+
+/* ───────── insights ───────── */
+const FILLER_PHRASES = ['very', 'really', 'just', 'quite', 'actually', 'basically', 'literally', 'simply', 'somewhat', 'rather', 'perhaps', 'maybe', 'probably', 'honestly', 'definitely', 'totally', 'extremely', 'fairly', 'clearly', 'obviously', 'certainly', 'essentially', 'virtually', 'a bit', 'a lot', 'kind of', 'sort of', 'in order to', 'i think', 'i guess', 'i believe', 'at the end of the day'];
+function syllables(w) {
+  w = w.toLowerCase().replace(/[^a-z]/g, ''); if (!w) return 0; if (w.length <= 3) return 1;
+  w = w.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '').replace(/^y/, '');
+  const m = w.match(/[aeiouy]{1,2}/g); return m ? m.length : 1;
+}
+function analyze(text) {
+  const body = text.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]*`/g, ' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, '$1').replace(/^[ \t]*(?:#{1,6}|>|[-*+]|\d+[.)])[ \t]+/gm, '')
+    .replace(/^[ \t]*\|?[ \t:|-]+\|?[ \t]*$/gm, ' ').replace(/[*_~|]/g, ' ');
+  const wre = /[\p{L}][\p{L}'’-]*/gu;
+  const words = body.match(wre) || [];
+  const sents = (body.match(/[^.!?\n]+[.!?]*/g) || []).map(x => x.trim()).filter(x => /\p{L}/u.test(x));
+  const syl = words.reduce((n, w) => n + syllables(w), 0);
+  const nW = words.length, nS = Math.max(1, sents.length), wps = nW / nS, spw = nW ? syl / nW : 0;
+  const flesch = nW ? 206.835 - 1.015 * wps - 84.6 * spw : 0, grade = nW ? 0.39 * wps + 11.8 * spw - 15.59 : 0;
+  const low = body.toLowerCase(), fillers = [];
+  for (const f of FILLER_PHRASES) { const n = (low.match(new RegExp('\\b' + f + '\\b', 'g')) || []).length; if (n) fillers.push([f, n]); }
+  fillers.sort((a, b) => b[1] - a[1]);
+  const passive = (body.match(/\b(?:is|are|was|were|be|been|being)\s+(?:\w+ly\s+)?\w+(?:ed|en)\b/gi) || []).length;
+  const adverbs = words.filter(w => w.length > 4 && /ly$/i.test(w) && !NOT_ADV.has(w.toLowerCase())).length;
+  const longSents = sents.filter(x => (x.match(wre) || []).length > 28);
+  const freq = {}; for (const w of words) { const l = w.toLowerCase(); if (l.length < 4 || STOP.has(l) || CONJ.has(l)) continue; freq[l] = (freq[l] || 0) + 1; }
+  const repeated = Object.entries(freq).filter(e => e[1] > 2).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  return { words: nW, sentences: sents.length, wps, flesch, grade, fillers, passive, adverbs, longSents, repeated };
+}
+function renderInsights() {
+  const el = $('#insightsList'), hasSel = ed.selectionStart !== ed.selectionEnd;
+  const r = analyze(hasSel ? ed.value.slice(ed.selectionStart, ed.selectionEnd) : ed.value);
+  const f = r.flesch, lab = !r.words ? '–' : f >= 90 ? 'Very easy' : f >= 80 ? 'Easy' : f >= 70 ? 'Fairly easy' : f >= 60 ? 'Plain' : f >= 50 ? 'Fairly hard' : f >= 30 ? 'Difficult' : 'Very difficult';
+  const weak = r.fillers.reduce((n, x) => n + x[1], 0);
+  const card = (v, l) => '<div class="stat"><b>' + v + '</b><span>' + l + '</span></div>';
+  let h = '<div class="scope">' + (hasSel ? 'Selection' : 'Whole document') + '</div><div class="stats">' +
+    card(r.words ? Math.round(f) : '–', 'Reading ease · ' + lab) + card(r.words ? Math.max(0, r.grade).toFixed(1) : '–', 'Grade level') +
+    card(r.words ? r.wps.toFixed(1) : '–', 'Words / sentence') + card(Math.max(1, Math.round(r.words / 130)) * (r.words ? 1 : 0) + ' min', 'Speaking time') +
+    card(r.passive, 'Passive phrases') + card(r.adverbs, '-ly adverbs') + card(weak, 'Weak words') + card(r.longSents.length, 'Long sentences') + '</div>' +
+    '<label class="chk"><input type="checkbox" id="fillToggle"' + (S.fillers ? ' checked' : '') + '> Highlight weak words in the editor</label>';
+  if (r.longSents.length) h += '<h4>Long sentences <span>' + r.longSents.length + '</span></h4>' + r.longSents.slice(0, 8).map(x => '<div class="item" data-jump="' + attr(x.slice(0, 28)) + '"><div class="s">' + esc(x.slice(0, 110)) + '…</div></div>').join('');
+  if (r.fillers.length) h += '<h4>Weak words</h4><div class="chips">' + r.fillers.slice(0, 12).map(x => '<span class="chip">' + esc(x[0]) + ' ×' + x[1] + '</span>').join('') + '</div>';
+  if (r.repeated.length) h += '<h4>Repeated words</h4><div class="chips">' + r.repeated.map(x => '<span class="chip">' + esc(x[0]) + ' ×' + x[1] + '</span>').join('') + '</div>';
+  el.innerHTML = h;
+}
+$('#insightsList').addEventListener('change', e => { if (e.target.id === 'fillToggle') { S.fillers = e.target.checked; saveSettings(); applySettings(); syncSettingsForm(); } });
+$('#insightsList').addEventListener('click', e => {
+  const it = e.target.closest('[data-jump]'); if (!it) return;
+  const i = ed.value.indexOf(it.dataset.jump); if (i < 0) return toast('Could not locate that sentence');
+  ed.focus(); ed.setSelectionRange(i, i + it.dataset.jump.length); ensureCaret(true); render();
+});
+
+/* ───────── typing helpers: auto-close, smart typography, move lines ───────── */
+const PAIRS = { '(': ')', '[': ']', '{': '}', '`': '`', '"': '"' };
+const OPENER_PREV = /[\s(\[{—–-]/;
+function onChar(e) {
+  if (e.isComposing || e.metaKey || e.key.length !== 1) return false;
+  if (e.ctrlKey && !e.altKey) return false;
+  if (e.altKey && !e.ctrlKey && !isMac) return false;
+  const k = e.key, t = ed.value, a = ed.selectionStart, b = ed.selectionEnd;
+  const prev = t[a - 1] || '', next = t[b] || '', sel = a !== b;
+  const smart = S.smart && !inCode(t, a);
+  const edge = !next || /[\s)\]}.,;:!?”’"'\-–—]/.test(next);
+  if (sel) {
+    if (!S.autopair) return false;
+    const x = t.slice(a, b);
+    const W2 = { '(': ['(', ')'], '[': ['[', ']'], '{': ['{', '}'], '`': ['`', '`'], '*': ['*', '*'], '_': ['_', '_'], '~': ['~~', '~~'], '"': smart ? ['“', '”'] : ['"', '"'] };
+    if (W2[k] && !x.includes('\n')) { const [l, r] = W2[k]; replaceRange(a, b, l + x + r, a + l.length, a + l.length + x.length); return true; }
+    return false;
+  }
+  if (S.autopair && next === k && ')]}`"'.includes(k)) { ed.setSelectionRange(a + 1, a + 1); return true; }
+  if (S.autopair && smart && k === '"' && next === '”') { ed.setSelectionRange(a + 1, a + 1); return true; }
+  const put = (x, caret) => { replaceRange(a, b, x, a + caret); return true; };
+  if (k === '(' || k === '[' || k === '{') return (S.autopair && edge) ? put(k + PAIRS[k], 1) : false;
+  if (k === '`') return (S.autopair && edge && prev !== '`') ? put('``', 1) : false;
+  if (k === '"') {
+    if (smart) return (!prev || OPENER_PREV.test(prev)) ? put(S.autopair && edge ? '“”' : '“', 1) : put('”', 1);
+    return (S.autopair && edge && !/[\p{L}\p{N}]/u.test(prev)) ? put('""', 1) : false;
+  }
+  if (k === "'" && smart) return put((!prev || OPENER_PREV.test(prev) || prev === '“') ? '‘' : '’', 1);
+  if (k === '-' && smart && prev === '-' && /[\p{L}\p{N}]\s?$/u.test(t.slice(0, a - 1))) { replaceRange(a - 1, a, '—', a); return true; }
+  if (k === '.' && smart && t.slice(a - 2, a) === '..' && t[a - 3] !== '.') { replaceRange(a - 2, a, '…', a - 1); return true; }
+  return false;
+}
+function onBackspace(e) {
+  if (!S.autopair || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return false;
+  const t = ed.value, a = ed.selectionStart; if (a !== ed.selectionEnd || a === 0) return false;
+  const o = t[a - 1], c = t[a];
+  if ((PAIRS[o] && PAIRS[o] === c) || (o === '“' && c === '”')) { e.preventDefault(); replaceRange(a - 1, a + 1, ''); return true; }
+  return false;
+}
+function moveLines(dir) {
+  const t = ed.value, a = ed.selectionStart, b = ed.selectionEnd;
+  const [la] = lineBounds(t, a), [, lb] = lineBounds(t, b > a && t[b - 1] === '\n' ? b - 1 : b), block = t.slice(la, lb);
+  if (dir < 0) {
+    if (la === 0) return;
+    const [pa, pb] = lineBounds(t, la - 1), prev = t.slice(pa, pb);
+    replaceRange(pa, lb, block + '\n' + prev, a - prev.length - 1, b - prev.length - 1);
+  } else {
+    if (lb >= t.length) return;
+    const [na, nb] = lineBounds(t, lb + 1), next = t.slice(na, nb);
+    replaceRange(la, nb, next + '\n' + block, a + next.length + 1, b + next.length + 1);
+  }
+}
+function duplicateLine() {
+  const t = ed.value, a = ed.selectionStart, b = ed.selectionEnd, [la] = lineBounds(t, a), [, lb] = lineBounds(t, b), block = t.slice(la, lb);
+  replaceRange(lb, lb, '\n' + block, b + block.length + 1);
+}
+function transformSel(fn) {
+  const a = ed.selectionStart, b = ed.selectionEnd; if (a === b) return toast('Select some text first');
+  const out = fn(ed.value.slice(a, b)); replaceRange(a, b, out, a, a + out.length);
+}
+const titleCase = x => x.toLowerCase().replace(/(^|[\s(\[“"-])(\p{L})/gu, (_, p, c) => p + c.toUpperCase());
+function insertTOC() {
+  const lines = []; let fence = false;
+  for (const l of ed.value.split('\n')) {
+    if (FENCE.test(l)) { fence = !fence; continue; }
+    const m = !fence && l.match(/^(#{2,6})\s+(.*)$/);
+    if (m) lines.push('  '.repeat(m[1].length - 2) + '- [' + m[2].replace(/[\[\]]/g, '') + '](#' + slug(m[2]) + ')');
+  }
+  if (!lines.length) return toast('Add some ## headings first');
+  insertText(lines.join('\n') + '\n');
+}
+
+/* ───────── templates ───────── */
+const TEMPLATES = {
+  'Journal entry': '# {{date}}\n\n## Gratitude\n\n- $0\n\n## Highlights\n\n\n\n## Tomorrow\n\n- [ ] \n',
+  'Meeting notes': '# Meeting: $0\n\n**Date:** {{date}}  \n**Attendees:** \n\n## Agenda\n\n1. \n\n## Notes\n\n\n\n## Action items\n\n- [ ] \n',
+  'Blog post': '# $0\n\n> One-sentence summary of the post.\n\n## Introduction\n\n\n\n## Main points\n\n\n\n## Conclusion\n\n',
+  'Weekly review': '# Week of {{date}}\n\n## Wins\n\n- $0\n\n## What didn’t go well\n\n- \n\n## Lessons\n\n- \n\n## Next week\n\n- [ ] \n',
+  'Project brief': '# $0\n\n## Goal\n\n\n\n## Audience\n\n\n\n## Scope\n\n- In:\n- Out:\n\n## Milestones\n\n- [ ] \n\n## Risks\n\n',
+  'Letter': '{{date}}\n\nDear $0,\n\n\n\nKind regards,\n'
+};
+function fromTemplate(name) {
+  const d = new Date();
+  let txt = TEMPLATES[name].replace(/\{\{date\}\}/g, d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
+  const c = txt.indexOf('$0'); txt = txt.replace('$0', '');
+  newDoc(txt); const pos = c < 0 ? txt.length : c;
+  ed.setSelectionRange(pos, pos); ensureCaret(false); render();
+}
+
+/* ───────── focus timer + read aloud ───────── */
+let timer = null;
+function startTimer(min) {
+  stopTimer(true);
+  timer = { end: Date.now() + min * 60000, min, base: stats[today()] || 0 };
+  timer.int = setInterval(tickTimer, 500); tickTimer(); toast('Focus timer started: ' + min + ' min');
+}
+function tickTimer() {
+  if (!timer) return;
+  const left = timer.end - Date.now(); if (left <= 0) return finishTimer();
+  const sec = Math.ceil(left / 1000), el = $('#stTimer');
+  el.hidden = false; el.textContent = '⏱ ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+function stopTimer(silent) { if (!timer) return; clearInterval(timer.int); timer = null; $('#stTimer').hidden = true; if (!silent) toast('Timer stopped'); }
+function finishTimer() { const wrote = (stats[today()] || 0) - timer.base, min = timer.min; stopTimer(true); beep(); toast('⏱ ' + min + ' min done · ' + wrote + ' words written'); }
+function beep() {
+  try {
+    const C = window.AudioContext || window.webkitAudioContext, c = new C(), o = c.createOscillator(), g = c.createGain();
+    o.connect(g); g.connect(c.destination); o.frequency.value = 660;
+    g.gain.setValueAtTime(.001, c.currentTime); g.gain.exponentialRampToValueAtTime(.2, c.currentTime + .02); g.gain.exponentialRampToValueAtTime(.001, c.currentTime + .6);
+    o.start(); o.stop(c.currentTime + .65);
+  } catch (e) { }
+}
+$('#stTimer').onclick = () => stopTimer();
+let speaking = false;
+function readAloud() {
+  if (!('speechSynthesis' in window)) return toast('Read aloud is not supported here');
+  if (speaking || speechSynthesis.speaking) { speechSynthesis.cancel(); speaking = false; return toast('Stopped reading'); }
+  const sel = ed.value.slice(ed.selectionStart, ed.selectionEnd), text = (sel || plainText()).replace(/\s+/g, ' ').trim();
+  if (!text) return;
+  const chunks = (text.match(/[^.!?]+[.!?]*\s*/g) || [text]).flatMap(c => c.length > 220 ? c.match(/.{1,220}(\s|$)/g) : [c]);
+  speaking = true;
+  chunks.forEach((c, i) => { const u = new SpeechSynthesisUtterance(c); if (i === chunks.length - 1) u.onend = () => { speaking = false; }; u.onerror = () => { speaking = false; }; speechSynthesis.speak(u); });
+  toast('Reading aloud… run it again to stop');
+}
+
+/* ───────── backup, restore, zip ───────── */
+function backupAll() {
+  flush();
+  download('Wren backup ' + today() + '.json', JSON.stringify({ app: 'wren', version: 2, exported: new Date().toISOString(), docs: Object.values(docs), stats }, null, 1), 'application/json');
+  toast('Backup downloaded');
+}
+async function restoreBackup(file) {
+  try {
+    const data = JSON.parse(await file.text()), list = Array.isArray(data) ? data : (data.docs || []);
+    let added = 0, copies = 0;
+    for (const d of list) {
+      if (!d || typeof d.text !== 'string') continue;
+      const ex = d.id && docs[d.id];
+      if (ex && ex.text === d.text) continue;
+      const id = (!d.id || ex) ? uid() : d.id;
+      docs[id] = { id, text: d.text, updated: d.updated || Date.now(), history: Array.isArray(d.history) ? d.history.slice(0, 25) : [], pinned: !!d.pinned };
+      if (d.trashed) docs[id].trashed = d.trashed;
+      if (ex) copies++; else added++;
+    }
+    if (data.stats) for (const k in data.stats) stats[k] = Math.max(stats[k] || 0, data.stats[k] | 0);
+    store.set('stats', stats); persist(); renderLibrary();
+    toast('Restored ' + added + ' new' + (copies ? ' and ' + copies + ' changed (kept as copies)' : '') + ' documents');
+  } catch (e) { toast('That is not a valid Wren backup'); }
+}
+$('#restoreInput').onchange = e => { const f = e.target.files[0]; if (f) restoreBackup(f); e.target.value = ''; };
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) { c ^= u8[i]; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1)); } return (c ^ 0xFFFFFFFF) >>> 0; }
+function buildZip(files) {
+  const enc = new TextEncoder(), parts = [], central = []; let offset = 0;
+  const d = new Date(), dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(), tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  for (const f of files) {
+    const name = enc.encode(f.name), data = f.data, crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true); lh.setUint16(10, tm, true); lh.setUint16(12, dt, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), name, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, tm, true); ch.setUint16(14, dt, true);
+    ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true);
+    ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + data.length;
+  }
+  const cdSize = central.reduce((n, p) => n + p.length, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  const all = [...parts, ...central, new Uint8Array(end.buffer)], out = new Uint8Array(all.reduce((n, p) => n + p.length, 0)); let o = 0;
+  for (const p of all) { out.set(p, o); o += p.length; }
+  return out;
+}
+function exportZip() {
+  flush(); const used = new Set(), enc = new TextEncoder();
+  const files = liveDocs().map(d => {
+    const base = (titleOf({ text: textOf(d) }).replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 60)) || 'Untitled'; let n = base, i = 2;
+    while (used.has(n.toLowerCase())) n = base + ' (' + i++ + ')';
+    used.add(n.toLowerCase()); return { name: n + '.md', data: enc.encode(textOf(d)) };
+  });
+  download('Wren documents.zip', buildZip(files), 'application/zip'); toast('Exported ' + files.length + ' documents');
+}
+
+const MORE_COMMANDS = [
+  ['Quick open document…', mod_() + ' P', () => openPalette('doc')],
+  ...Object.keys(TEMPLATES).map(n => ['New: ' + n, '', () => fromTemplate(n)]),
+  ['Open link under cursor / toggle task', mod_() + ' ↩', ctrlEnter],
+  ['Show backlinks', '', () => { toggleSidebar(true); setTab('links'); }],
+  ['Show insights', '', () => { toggleSidebar(true); setTab('insights'); }],
+  ['Toggle weak-word highlight (very, just…)', '', () => { S.fillers = !S.fillers; saveSettings(); applySettings(); syncSettingsForm(); }],
+  ['Toggle smart typography', '', () => { S.smart = !S.smart; saveSettings(); syncSettingsForm(); toast('Smart typography ' + (S.smart ? 'on' : 'off')); }],
+  ['Toggle auto-close brackets and quotes', '', () => { S.autopair = !S.autopair; saveSettings(); syncSettingsForm(); toast('Auto-close ' + (S.autopair ? 'on' : 'off')); }],
+  ['Pin / unpin document', '', () => { const d = docs[curId]; d.pinned = !d.pinned; persist(); renderLibrary(); toast(d.pinned ? 'Pinned' : 'Unpinned'); }],
+  ['Show Trash', '', () => { toggleSidebar(true); showTrash = true; setTab('lib'); }],
+  ['Duplicate line', '', duplicateLine],
+  ['Move line up', 'Alt ↑', () => moveLines(-1)], ['Move line down', 'Alt ↓', () => moveLines(1)],
+  ['Insert table of contents', '', insertTOC],
+  ['Selection: UPPERCASE', '', () => transformSel(x => x.toUpperCase())],
+  ['Selection: lowercase', '', () => transformSel(x => x.toLowerCase())],
+  ['Selection: Title Case', '', () => transformSel(titleCase)],
+  ['Read aloud / stop', '', readAloud],
+  ['Focus timer: 15 minutes', '', () => startTimer(15)], ['Focus timer: 25 minutes', '', () => startTimer(25)], ['Focus timer: 50 minutes', '', () => startTimer(50)],
+  ['Stop timer', '', () => stopTimer()],
+  ['Backup all documents (.json)', '', backupAll],
+  ['Restore from backup…', '', () => $('#restoreInput').click()],
+  ['Export all documents (.zip of Markdown)', '', exportZip]
+];
+function mod_() { return isMac ? '⌘' : 'Ctrl'; }
+
 /* command palette */
 const mod = isMac ? '⌘' : 'Ctrl';
 const COMMANDS = [
@@ -730,20 +1185,31 @@ const COMMANDS = [
   ['Export Word (.doc)', '', EXPORTS.doc], ['Export plain text', '', EXPORTS.txt],
   ['Copy as rich text', '', EXPORTS.copyhtml], ['Copy Markdown', '', EXPORTS.copymd],
   ['Sort selected lines A→Z', '', () => { const a = ed.selectionStart, b = ed.selectionEnd; if (a === b) return toast('Select some lines first'); const out = ed.value.slice(a, b).split('\n').sort((x, y) => x.localeCompare(y)).join('\n'); replaceRange(a, b, out, a, a + out.length); }],
-  ['Delete this document', '', () => deleteDoc(curId)],
+  ['Move document to Trash', '', () => deleteDoc(curId)],
   ['Reset all settings', '', () => { Object.assign(S, JSON.parse(JSON.stringify(defaults))); saveSettings(); applySettings(); syncSettingsForm(); }]
 ];
-let palSel = 0, palItems = [];
-function openPalette() {
-  $('#palette').hidden = false; $('#palInput').value = ''; renderPalette(); $('#palInput').focus();
+COMMANDS.push(...MORE_COMMANDS);
+let palSel = 0, palItems = [], palMode = 'cmd';
+function openPalette(mode, prefill) {
+  palMode = mode === 'doc' ? 'doc' : 'cmd'; palSel = 0;
+  $('#palette').hidden = false;
+  $('#palInput').value = typeof prefill === 'string' ? prefill : '';
+  $('#palInput').placeholder = palMode === 'doc' ? 'Jump to a document…' : 'Type a command…';
+  renderPalette(); $('#palInput').focus();
 }
 function closePalette() { $('#palette').hidden = true; ed.focus(); }
 function renderPalette() {
   const q = $('#palInput').value.toLowerCase().trim();
-  palItems = COMMANDS.filter(c => !q || c[0].toLowerCase().includes(q));
+  if (palMode === 'doc') {
+    palItems = liveDocs().map(d => { const txt = textOf(d); return { title: titleOf({ text: txt }), txt, d }; })
+      .filter(x => !q || x.title.toLowerCase().includes(q) || x.txt.toLowerCase().includes(q))
+      .sort((a, b) => (b.title.toLowerCase().includes(q) - a.title.toLowerCase().includes(q)) || b.d.updated - a.d.updated)
+      .slice(0, 50)
+      .map(x => [x.title, fmtDate(x.d.updated) + ' · ' + countWords(x.txt) + ' w', () => openDoc(x.d.id)]);
+  } else palItems = COMMANDS.filter(c => !q || c[0].toLowerCase().includes(q));
   if (palSel >= palItems.length) palSel = 0;
-  $('#palList').innerHTML = palItems.map((c, i) => '<div class="cmd' + (i === palSel ? ' on' : '') + '" data-i="' + i + '"><span>' + esc(c[0]) + '</span><kbd>' + esc(c[1]) + '</kbd></div>').join('') || '<div class="empty">No matching command</div>';
-  $('#palList .on')?.scrollIntoView({ block: 'nearest' });
+  $('#palList').innerHTML = palItems.map((c, i) => '<div class="cmd' + (i === palSel ? ' on' : '') + '" data-i="' + i + '"><span>' + esc(c[0]) + '</span><kbd>' + esc(c[1]) + '</kbd></div>').join('') || '<div class="empty">' + (palMode === 'doc' ? 'No matching document' : 'No matching command') + '</div>';
+  $('#palList .on')?.scrollIntoView?.({ block: 'nearest' });
 }
 function runPalette(i) { const c = palItems[i]; if (!c) return; closePalette(); setTimeout(c[2], 0); }
 $('#palInput').addEventListener('input', () => { palSel = 0; renderPalette(); });
@@ -762,19 +1228,25 @@ $('#setClose').onclick = closeSettings;
 
 /* ───────── events ───────── */
 ed.addEventListener('input', () => {
-  render(); scheduleSave(); updatePreview(); ensureCaret(false);
-  if (tab === 'outline') renderOutline();
+  render(); scheduleSave(); updatePreview(); ensureCaret(false); updatePop();
+  if (tab !== 'lib') refreshPanel(250);
 });
 ed.addEventListener('keydown', e => {
   document.body.classList.add('typing');
-  if (e.key === 'Enter' && !(e.metaKey || e.ctrlKey || e.altKey)) onEnter(e);
+  if (popKey(e)) return;
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key === 'Enter') { e.preventDefault(); ctrlEnter(); return; }
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); moveLines(e.key === 'ArrowUp' ? -1 : 1); return; }
+  if (e.key === 'Backspace') { if (onBackspace(e)) return; }
+  else if (e.key === 'Enter' && !(e.metaKey || e.ctrlKey || e.altKey)) onEnter(e);
   else if (e.key === 'Tab' && !(e.metaKey || e.ctrlKey || e.altKey)) onTab(e);
+  else if (onChar(e)) e.preventDefault();
 });
+ed.addEventListener('click', e => { if (e.metaKey || e.ctrlKey) { const t = wikiAtCaret(); if (t) { e.preventDefault(); openWiki(t); } } });
 let selTimer;
 document.addEventListener('selectionchange', () => {
   if (document.activeElement !== ed) return;
   cancelAnimationFrame(selTimer);
-  selTimer = requestAnimationFrame(() => { if (S.focus !== 'off') renderNow(); else updateStatus(); if (!document.body.classList.contains('typing') || S.typewriter) ensureCaret(true); });
+  selTimer = requestAnimationFrame(() => { updatePop(); if (S.focus !== 'off') renderNow(); else updateStatus(); if (!document.body.classList.contains('typing') || S.typewriter) ensureCaret(true); });
 });
 ed.addEventListener('paste', e => {
   const items = e.clipboardData?.items || [];
@@ -788,12 +1260,16 @@ ed.addEventListener('paste', e => {
   void items; void html;
 });
 ['mousemove', 'mousedown', 'touchstart'].forEach(ev => document.addEventListener(ev, () => document.body.classList.remove('typing'), { passive: true }));
-ed.addEventListener('blur', flush);
+ed.addEventListener('blur', () => { flush(); hidePop(); });
 addEventListener('beforeunload', flush);
 addEventListener('pagehide', flush);
 addEventListener('resize', () => { render(); });
 scroller.addEventListener('mousedown', e => { if (e.target === scroller || e.target.id === 'column') { ed.focus(); const l = ed.value.length; if (e.offsetY > inner.offsetTop) ed.setSelectionRange(l, l); } });
-$('#preview').addEventListener('click', e => { const a = e.target.closest('a[href^="#"]'); if (a) { e.preventDefault(); $('#preview').querySelector(a.getAttribute('href'))?.scrollIntoView(); } });
+$('#preview').addEventListener('click', e => {
+  const w = e.target.closest('a.wiki'); if (w) { e.preventDefault(); openWiki(w.dataset.wiki); return; }
+  const a = e.target.closest('a[href^="#"]');
+  if (a) { e.preventDefault(); const id = a.getAttribute('href').slice(1); try { $('#preview').querySelector('[id="' + id.replace(/"/g, '') + '"]')?.scrollIntoView(); } catch (_) { } }
+});
 
 document.addEventListener('keydown', e => {
   const m = e.metaKey || e.ctrlKey; const k = e.key.toLowerCase();
@@ -805,12 +1281,14 @@ document.addEventListener('keydown', e => {
     if (document.body.classList.contains('zen')) return toggleZen();
   }
   if (!m) return;
+  if (e.ctrlKey && e.altKey) return; // AltGr on Windows/Linux sends Ctrl+Alt for characters such as \ [ { @
   const run = fn => { e.preventDefault(); fn(); };
   if (k === 'k' && !e.shiftKey) run(openPalette);
   else if (k === 'k' && e.shiftKey) run(insertLink);
   else if (k === 'b' && !e.shiftKey) run(() => wrap('**'));
   else if (k === 'i' && !e.shiftKey) run(() => wrap('*'));
   else if (k === 'p' && e.shiftKey) run(() => togglePreview());
+  else if (k === 'p') run(() => openPalette('doc'));
   else if (k === 'f' && e.shiftKey) run(cycleFocus);
   else if (k === 'f') run(() => toggleFind(true));
   else if (k === 'n' && !e.shiftKey) run(() => newDoc());
@@ -829,7 +1307,7 @@ $('#findBtn').onclick = () => toggleFind();
 $('#exportBtn').onclick = e => { e.stopPropagation(); showExportMenu(); };
 $('#themeBtn').onclick = cycleTheme;
 $('#settingsBtn').onclick = openSettings;
-$('#paletteBtn').onclick = openPalette;
+$('#paletteBtn').onclick = () => openPalette();
 $('#importBtn').onclick = () => $('#fileInput').click();
 $('#openBtn').onclick = openFromDisk;
 $('#fileInput').onchange = e => { importFiles([...e.target.files]); e.target.value = ''; };
@@ -852,7 +1330,7 @@ addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragN = 0; document.body.classList.remove('drop'); if (e.dataTransfer?.files?.length) importFiles([...e.dataTransfer.files]); });
 
 // desktop wrapper hooks (Electron menu)
-window.wren = { newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles };
+window.wren = { newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { analyze, buildZip, openWiki, fromTemplate } };
 
 /* ───────── boot ───────── */
 document.body.classList.toggle('nosb', !S.sidebar || innerWidth <= 820);

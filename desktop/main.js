@@ -28,6 +28,9 @@ function buildMenu() {
       { label: 'New Document', accelerator: 'CmdOrCtrl+N', click: () => call('wren.newDoc()') },
       { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => call('wren.openFromDisk()') },
       { label: 'Save…', accelerator: 'CmdOrCtrl+S', click: () => call('wren.saveFile()') },
+      { label: 'Quick Open…', accelerator: 'CmdOrCtrl+P', click: () => call("wren.openPalette('doc')") },
+      { label: 'Back Up All Documents…', click: () => call('wren.backupAll()') },
+      { label: 'Export All as ZIP…', click: () => call('wren.exportZip()') },
       { type: 'separator' },
       { label: 'Export', submenu: [
         { label: 'Markdown', click: () => call("wren.exports.md()") },
@@ -43,6 +46,7 @@ function buildMenu() {
       { label: 'Toggle Preview', accelerator: 'CmdOrCtrl+Shift+P', click: () => call('wren.togglePreview()') },
       { label: 'Cycle Focus Mode', accelerator: 'CmdOrCtrl+Shift+F', click: () => call('wren.cycleFocus()') },
       { label: 'Zen Mode', accelerator: 'CmdOrCtrl+Shift+J', click: () => call('wren.toggleZen()') },
+      { label: 'Read Aloud', click: () => call('wren.readAloud()') },
       { label: 'Command Palette', accelerator: 'CmdOrCtrl+K', click: () => call('wren.openPalette()') },
       { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => call('wren.openSettings()') },
       { type: 'separator' }, { role: 'togglefullscreen' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' }

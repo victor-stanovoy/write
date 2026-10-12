@@ -21,14 +21,20 @@
     <nav class="tabs">
       <button data-tab="lib" class="on">Library</button>
       <button data-tab="outline">Outline</button>
+      <button data-tab="links">Links</button>
+      <button data-tab="insights">Insights</button>
       <button data-tab="history">History</button>
     </nav>
     <div id="libList" class="list"></div>
     <div id="outlineList" class="list" hidden></div>
+    <div id="linksList" class="list" hidden></div>
+    <div id="insightsList" class="list" hidden></div>
     <div id="historyList" class="list" hidden></div>
     <div class="sb-foot">
+      <button id="tplBtn">Templates</button>
       <button id="importBtn">Import…</button>
       <button id="openBtn">Open file…</button>
+      <input id="restoreInput" type="file" accept=".json,application/json" hidden>
       <input id="fileInput" type="file" accept=".md,.markdown,.mdown,.txt,.text" multiple hidden>
     </div>
   </aside>
@@ -72,6 +78,7 @@
             <div id="backdrop" aria-hidden="true"></div>
             <textarea id="editor" spellcheck="false" autocapitalize="sentences" aria-label="Editor" placeholder="Start writing…"></textarea>
           </div>
+          <div id="pop" hidden></div>
         </div>
       </div>
       <div id="preview" hidden></div>
@@ -83,6 +90,7 @@
       <span id="stSent">0 sentences</span>
       <span id="stRead">0 min read</span>
       <span id="stSel"></span>
+      <span id="stTimer" hidden title="Click to stop the timer"></span>
       <div class="spacer"></div>
       <span id="stGoal" title="Daily word goal"></span>
       <span id="stSaved">Saved</span>
@@ -117,6 +125,9 @@
         <select data-k="focus"><option value="off">Off</option><option value="line">Line</option><option value="sentence">Sentence</option><option value="paragraph">Paragraph</option></select></label>
       <label class="chk"><input type="checkbox" data-k="typewriter"> Typewriter scrolling</label>
       <label class="chk"><input type="checkbox" data-k="spell"> Spell check</label>
+      <label class="chk"><input type="checkbox" data-k="smart"> Smart typography (“ ” ’ — …)</label>
+      <label class="chk"><input type="checkbox" data-k="autopair"> Auto-close brackets &amp; quotes</label>
+      <label class="chk"><input type="checkbox" data-k="fillers"> Highlight weak words (very, just…)</label>
       <label>Daily word goal <input type="number" min="0" step="50" data-k="dailyGoal"></label>
     </div>
     <h3>Syntax highlight <small>(English, heuristic)</small></h3>
@@ -137,6 +148,10 @@
       <li><kbd>Ctrl/⌘ Shift J</kbd> Zen mode</li>
       <li><kbd>Ctrl/⌘ N</kbd> New · <kbd>Ctrl/⌘ S</kbd> Save file</li>
       <li><kbd>Ctrl/⌘ F</kbd> Find &amp; replace</li>
+      <li><kbd>Ctrl/⌘ P</kbd> Quick open document</li>
+      <li><kbd>/</kbd> Slash menu · <kbd>[[</kbd> Link notes</li>
+      <li><kbd>Ctrl/⌘ ↩</kbd> Open link / toggle task</li>
+      <li><kbd>Alt ↑ ↓</kbd> Move line</li>
     </ul>
     <p class="note">Everything is stored in your browser. Nothing is uploaded anywhere.</p>
   </div>
