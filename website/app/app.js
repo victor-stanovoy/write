@@ -526,7 +526,7 @@ function inlineMd(s) {
   s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
   s = esc(s);
   s = s.replace(/\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g, (_, t, al) => { wikis.push('<a class="wiki' + (hasDoc(unesc(t)) ? '' : ' miss') + '" data-wiki="' + t.trim().replace(/"/g, '&quot;') + '" href="#wiki">' + (al || t) + '</a>'); return '\u0001' + (wikis.length - 1) + '\u0001'; });
-  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, alt, src, ti) => '<img alt="' + alt + '" src="' + safeUrl(src) + '"' + (ti ? ' title="' + ti + '"' : '') + '>');
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, alt, src, ti) => isVideoUrl(unesc(src)) ? '<span class="blocked">🚫 video blocked</span>' : '<img alt="' + alt + '" src="' + safeUrl(src) + '"' + (ti ? ' title="' + ti + '"' : '') + '>');
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, tx, href) => '<a href="' + safeUrl(href) + '" target="_blank" rel="noopener">' + tx + '</a>');
   s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
   s = s.replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, a, b) => '<strong>' + (a || b) + '</strong>');
@@ -1026,16 +1026,16 @@ function fromTemplate(name) {
 
 /* ───────── focus timer + read aloud ───────── */
 let timer = null;
-function startTimer(min) {
+function startTimer(min, hard) {
   stopTimer(true);
-  timer = { end: Date.now() + min * 60000, min, base: stats[today()] || 0 };
-  timer.int = setInterval(tickTimer, 500); tickTimer(); toast('Focus timer started: ' + min + ' min');
+  timer = { end: Date.now() + min * 60000, min, hard: !!hard, base: stats[today()] || 0 };
+  timer.int = setInterval(tickTimer, 500); tickTimer(); toast((hard ? 'Sprint started: no deleting for ' : 'Focus timer started: ') + min + ' min');
 }
 function tickTimer() {
   if (!timer) return;
   const left = timer.end - Date.now(); if (left <= 0) return finishTimer();
   const sec = Math.ceil(left / 1000), el = $('#stTimer');
-  el.hidden = false; el.textContent = '⏱ ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  el.hidden = false; el.textContent = (timer.hard ? '🔒 ' : '⏱ ') + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') + ' · +' + Math.max(0, (stats[today()] || 0) - timer.base);
 }
 function stopTimer(silent) { if (!timer) return; clearInterval(timer.int); timer = null; $('#stTimer').hidden = true; if (!silent) toast('Timer stopped'); }
 function finishTimer() { const wrote = (stats[today()] || 0) - timer.base, min = timer.min; stopTimer(true); beep(); toast('⏱ ' + min + ' min done · ' + wrote + ' words written'); }
@@ -1190,7 +1190,7 @@ const COMMANDS = [
 ];
 /* ───────── Wikipedia research pane + full screen ───────── */
 const WLANGS = [['en', 'English'], ['simple', 'Simple English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español'], ['it', 'Italiano'], ['pt', 'Português'], ['nl', 'Nederlands'], ['pl', 'Polski'], ['ru', 'Русский'], ['ja', '日本語'], ['zh', '中文'], ['ar', 'العربية']];
-const R = { lang: store.get('wikilang', 'en'), cur: null, ctl: null, cache: new Map(), recent: store.get('wikirecent', []), q: '' };
+const R = { lang: store.get('wikilang', 'en'), cur: null, ctl: null, cache: new Map(), recent: store.get('wikirecent', []), q: '', src: store.get('ressrc', 'wiki') };
 $('#resLang').innerHTML = WLANGS.map(([c, n]) => '<option value="' + c + '">' + n + '</option>').join('');
 if (!WLANGS.some(l => l[0] === R.lang)) R.lang = 'en';
 $('#resLang').value = R.lang;
@@ -1208,12 +1208,14 @@ function resError(e, retry) {
 }
 function resHome() {
   R.cur = null; $('#resActions').hidden = true;
+  if (R.src !== 'wiki') { resBody().innerHTML = '<div class="empty">' + (R.src === 'dict' ? 'Type a word to see its definitions.' : 'Type a word to find synonyms, opposites and rhymes. Click a result to swap it into your text.') + '</div>'; return; }
   resBody().innerHTML = '<div class="empty">Search Wikipedia without leaving your document. Select text in an article, then use <b>Quote selection</b> to insert it with its source.</div>' +
     (R.recent.length ? '<h4>Recent</h4>' + R.recent.map(t => '<div class="rr" data-t="' + attr(t) + '"><span class="ph"></span><div><b>' + esc(t) + '</b></div></div>').join('') : '');
 }
 async function resSearch(q, auto) {
   q = (q || '').trim(); R.q = q;
   if (!q) return resHome();
+  if (R.src !== 'wiki') return resWord(q);
   R.cur = null; $('#resActions').hidden = true; resBody().innerHTML = '<div class="empty">Searching…</div>';
   try {
     const j = await wapi({ action: 'query', generator: 'search', gsrsearch: q, gsrlimit: 8, prop: 'description|pageimages', piprop: 'thumbnail', pithumbsize: 80 });
@@ -1272,18 +1274,19 @@ function resAct(act) {
   else if (act === 'cite') insertText('Wikipedia contributors. “' + c.title + '.” Wikipedia, The Free Encyclopedia. Accessed ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) + '. ' + c.url);
   ed.focus(); toast('Inserted');
 }
-function openResearch(q) {
+function openResearch(q, src) {
+  if (src) setSrc(src, true);
   $('#research').hidden = false; $('#researchBtn').style.background = 'var(--panel)';
-  if (typeof q === 'string' && q.trim()) { $('#resInput').value = q.trim(); resSearch(q, true); }
+  if (typeof q === 'string' && q.trim()) { $('#resInput').value = q.trim(); resSearch(q, R.src === 'wiki'); }
   else if (!resBody().innerHTML.trim()) resHome();
   $('#resInput').focus(); $('#resInput').select();
 }
 function closeResearch() { $('#research').hidden = true; $('#researchBtn').style.background = ''; ed.focus(); }
 function toggleResearch() { if ($('#research').hidden) openResearch(); else closeResearch(); }
-function lookupSelection() {
+function lookupSelection(src) {
   let q = ed.value.slice(ed.selectionStart, ed.selectionEnd).trim().replace(/\s+/g, ' ').slice(0, 120);
   if (!q) { const t = ed.value, p = ed.selectionStart; let a = p, b = p; while (a > 0 && /[\p{L}\p{N}'’-]/u.test(t[a - 1])) a--; while (b < t.length && /[\p{L}\p{N}'’-]/u.test(t[b])) b++; q = t.slice(a, b); }
-  openResearch(q);
+  openResearch(q, typeof src === 'string' ? src : undefined);
 }
 function toggleFullscreen() {
   const d = document, el = d.documentElement;
@@ -1301,6 +1304,7 @@ $('#resClose').onclick = closeResearch; $('#researchBtn').onclick = toggleResear
 $('#resActions').addEventListener('mousedown', e => e.preventDefault());
 $('#resActions').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b) resAct(b.dataset.act); });
 resBody().addEventListener('click', e => {
+  const cw = e.target.closest('.chip.w'); if (cw) return useWord(cw.dataset.w);
   const rr = e.target.closest('.rr'); if (rr) return resOpen(rr.dataset.t);
   const a = e.target.closest('[data-a]'); if (!a) return;
   if (a.dataset.a === 'back') { if (R.q) resSearch(R.q); else resHome(); } else if (a.dataset.a === 'full') resFull(); else if (a.dataset.a === 'retry' && R.retry) R.retry();
@@ -1315,7 +1319,132 @@ const RESEARCH_COMMANDS = [
   ['Full screen + Zen mode', '', () => { toggleFullscreen(); if (!document.body.classList.contains('zen')) toggleZen(); }]
 ];
 
-COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS);
+/* ───────── video blocking ───────── */
+const VIDEO_RE = /(\.(mp4|m4v|mov|webm|ogv|avi|mkv|mpe?g|m3u8)([?#]|$))|((^|\/\/)(www\.|m\.)?(youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|twitch\.tv|dailymotion\.com)\/)/i;
+const isVideoUrl = u => VIDEO_RE.test((u || '').trim());
+
+/* ───────── music: Spotify embed only (audio, never video) ───────── */
+const M_PRESETS = [['Deep Focus', 'playlist', '37i9dQZF1DWZeKCadgRdKQ'], ['Peaceful Piano', 'playlist', '37i9dQZF1DX4sWSpwq3LiO'], ['lofi beats', 'playlist', '37i9dQZF1DWWQRwui0ExPn'], ['Brain Food', 'playlist', '37i9dQZF1DWXLeA8Omikj7'], ['Instrumental Study', 'playlist', '37i9dQZF1DX9sIqqvKsjG8']];
+const M = { cur: store.get('music', null), big: false };
+function parseMusic(u) {
+  u = (u || '').trim();
+  if (!u) return { err: 'Paste a Spotify link first.' };
+  if (/(youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|twitch\.tv|netflix\.com|dailymotion\.com)/i.test(u)) return { err: 'Video sites are blocked. Wren only plays music from Spotify.' };
+  let m = u.match(/^spotify:(track|album|playlist|artist):([A-Za-z0-9]{22})$/);
+  if (!m) m = u.match(/^https:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(track|album|playlist|artist)\/([A-Za-z0-9]{22})(?:[?#].*)?$/);
+  if (m) return { type: m[1], id: m[2] };
+  if (/spotify/i.test(u) && /(episode|show)/i.test(u)) return { err: 'Podcasts and shows are blocked because they can include video. Use a track, album, playlist or artist link.' };
+  return { err: 'That doesn’t look like a Spotify track, album, playlist or artist link.' };
+}
+function playMusic(type, id) {
+  const h = (type === 'track' || !M.big) ? 152 : 352;
+  $('#muFrame').innerHTML = '<iframe title="Spotify player" src="https://open.spotify.com/embed/' + type + '/' + id + '?utm_source=generator" width="100%" height="' + h + '" frameborder="0" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms" referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+  M.cur = { type, id }; store.set('music', M.cur); $('#muMsg').textContent = '';
+}
+function openMusic() {
+  $('#music').hidden = false; $('#musicBtn').style.background = 'var(--panel)';
+  if (!$('#muPresets').children.length) $('#muPresets').innerHTML = M_PRESETS.map(p => '<button class="chip" data-t="' + p[1] + '" data-id="' + p[2] + '">' + esc(p[0]) + '</button>').join('');
+  if (M.cur && !$('#muFrame').children.length) playMusic(M.cur.type, M.cur.id);
+}
+function closeMusic() { $('#muFrame').innerHTML = ''; $('#music').hidden = true; $('#musicBtn').style.background = ''; ed.focus(); }
+function toggleMusic() { if ($('#music').hidden) openMusic(); else closeMusic(); }
+function submitMusic() {
+  const r = parseMusic($('#muInput').value);
+  if (r.err) { $('#muMsg').textContent = r.err; return false; }
+  playMusic(r.type, r.id); $('#muInput').value = ''; return true;
+}
+$('#musicBtn').onclick = toggleMusic; $('#muClose').onclick = closeMusic; $('#muGo').onclick = submitMusic;
+$('#muInput').addEventListener('keydown', e => { if (e.key === 'Enter') submitMusic(); else if (e.key === 'Escape') { e.stopPropagation(); ed.focus(); } });
+$('#muPresets').addEventListener('click', e => { const b = e.target.closest('[data-id]'); if (b) playMusic(b.dataset.t, b.dataset.id); });
+$('#muSize').onclick = () => { M.big = !M.big; const f = $('#muFrame iframe'); if (f && M.cur && M.cur.type !== 'track') f.height = M.big ? 352 : 152; };
+
+/* ───────── dictionary + thesaurus (research pane sources) ───────── */
+async function jget(url) {
+  if (R.cache.has(url)) return R.cache.get(url);
+  const r = await fetch(url);
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json(); R.cache.set(url, j); return j;
+}
+R.tok = 0;
+async function resWord(q) {
+  const tok = ++R.tok; R.cur = null; $('#resActions').hidden = true;
+  resBody().innerHTML = '<div class="empty">Looking up…</div>';
+  const enc = encodeURIComponent(q);
+  try {
+    let html;
+    if (R.src === 'dict') {
+      const j = await jget('https://api.dictionaryapi.dev/v2/entries/en/' + enc);
+      if (tok !== R.tok) return;
+      if (!Array.isArray(j) || !j.length) html = '<div class="empty">No definition found for “' + esc(q) + '”.</div>';
+      else {
+        html = '<h2>' + esc(j[0].word) + '</h2>' + (j[0].phonetic ? '<div class="rdesc">' + esc(j[0].phonetic) + '</div>' : '');
+        for (const m of j.flatMap(x => x.meanings || []).slice(0, 6)) html += '<h3>' + esc(m.partOfSpeech) + '</h3><ol>' + (m.definitions || []).slice(0, 3).map(d => '<li>' + esc(d.definition) + (d.example ? '<div class="ex">“' + esc(d.example) + '”</div>' : '') + '</li>').join('') + '</ol>';
+      }
+    } else {
+      const base = 'https://api.datamuse.com/words?max=24&';
+      const [syn, ml, ant, rhy] = await Promise.all([jget(base + 'rel_syn=' + enc), jget(base + 'ml=' + enc), jget(base + 'rel_ant=' + enc), jget(base + 'rel_rhy=' + enc)]);
+      if (tok !== R.tok) return;
+      const seen = new Set((syn || []).map(x => x.word)), sim = (ml || []).filter(x => !seen.has(x.word));
+      const grp = (t, a) => (a && a.length) ? '<h4>' + t + '</h4><div class="chips">' + a.map(x => '<span class="chip w" data-w="' + attr(x.word) + '">' + esc(x.word) + '</span>').join('') + '</div>' : '';
+      html = '<h2>' + esc(q) + '</h2><div class="rdesc">Click a word to replace your selection (or insert it at the cursor).</div>' + grp('Synonyms', syn) + grp('Similar meaning', sim) + grp('Opposites', ant) + grp('Rhymes', rhy);
+      if (!(syn || []).length && !sim.length && !(ant || []).length && !(rhy || []).length) html = '<div class="empty">No results for “' + esc(q) + '”.</div>';
+    }
+    resBody().innerHTML = html;
+  } catch (e) { if (tok === R.tok) resError(e, () => resWord(q)); }
+}
+function useWord(w) {
+  const had = ed.selectionStart !== ed.selectionEnd;
+  replaceRange(ed.selectionStart, ed.selectionEnd, w); ed.focus(); toast((had ? 'Replaced with “' : 'Inserted “') + w + '”');
+}
+function setSrc(v, noSearch) {
+  R.src = v; store.set('ressrc', v); $('#resSrc').value = v; $('#resLang').hidden = v !== 'wiki';
+  $('#resInput').placeholder = v === 'wiki' ? 'Search Wikipedia…' : v === 'dict' ? 'Look up a word…' : 'Synonyms, opposites, rhymes…';
+  if (R.ctl) R.ctl.abort(); R.tok++;
+  if (!noSearch) { const q = $('#resInput').value.trim(); if (q) resSearch(q); else resHome(); }
+}
+$('#resSrc').addEventListener('change', e => setSrc(e.target.value));
+setSrc(['wiki', 'dict', 'syn'].includes(R.src) ? R.src : 'wiki', true);
+
+/* ───────── writing stats ───────── */
+function showStats() {
+  flush();
+  let el = $('#statsModal');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'statsModal'; el.className = 'overlay';
+    el.innerHTML = '<div class="card set"><div class="set-head"><h2>Writing stats</h2><button class="icon" id="stClose" aria-label="Close stats">✕</button></div><div id="stBody"></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('mousedown', e => { if (e.target === el) { el.hidden = true; ed.focus(); } });
+    el.querySelector('#stClose').onclick = () => { el.hidden = true; ed.focus(); };
+  }
+  const keys = Object.keys(stats).filter(k => stats[k] > 0).sort(), DAY = 864e5;
+  const total = keys.reduce((n, k) => n + stats[k], 0), best = keys.reduce((b, k) => stats[k] > (stats[b] || 0) ? k : b, '');
+  let longest = 0, run = 0, prev = null;
+  for (const k of keys) { const t = Date.parse(k + 'T00:00:00Z'); run = (prev !== null && t - prev === DAY) ? run + 1 : 1; longest = Math.max(longest, run); prev = t; }
+  let cur = 0, t = Date.parse(today() + 'T00:00:00Z'); if (!(stats[today()] > 0)) t -= DAY;
+  while (stats[new Date(t).toISOString().slice(0, 10)] > 0) { cur++; t -= DAY; }
+  const end = Date.parse(today() + 'T00:00:00Z'), dow = (new Date(end).getUTCDay() + 6) % 7, n = 25 * 7 + dow + 1;
+  const max = Math.max(1, ...Object.values(stats).map(Number)); let cells = '';
+  for (let i = 0; i < n; i++) { const k = new Date(end - (n - 1 - i) * DAY).toISOString().slice(0, 10), v = stats[k] || 0; cells += '<i class="hm l' + (v ? Math.min(4, Math.ceil(4 * v / max)) : 0) + '" title="' + k + ': ' + v + ' words"></i>'; }
+  const inNotes = liveDocs().reduce((s, d) => s + countWords(textOf(d)), 0);
+  const card = (v, l) => '<div class="stat"><b>' + v + '</b><span>' + l + '</span></div>';
+  $('#stBody').innerHTML = '<div class="stats">' + card((stats[today()] || 0).toLocaleString(), 'Words today') + card(cur + ' day' + (cur === 1 ? '' : 's'), 'Current streak') + card(longest + ' day' + (longest === 1 ? '' : 's'), 'Longest streak') + card(best ? stats[best].toLocaleString() : '–', 'Best day' + (best ? ' · ' + best : '')) + card(total.toLocaleString(), 'Words written (tracked)') + card(inNotes.toLocaleString(), 'Words in your notes') + '</div><h4 class="hmh">Last 26 weeks</h4><div class="heat">' + cells + '</div><p class="note">Only words you add while typing are counted; deleting never lowers a day.</p>';
+  el.hidden = false;
+}
+
+const EXTRA_COMMANDS = [
+  ['Music: open Spotify player', '', openMusic],
+  ...M_PRESETS.map(p => ['Music: ' + p[0], '', () => { openMusic(); playMusic(p[1], p[2]); }]),
+  ['Music: stop and close', '', closeMusic],
+  ['Define selection (dictionary)', '', () => lookupSelection('dict')],
+  ['Synonyms for selection (thesaurus)', '', () => lookupSelection('syn')],
+  ['Sprint (no deleting): 10 minutes', '', () => startTimer(10, true)],
+  ['Sprint (no deleting): 20 minutes', '', () => startTimer(20, true)],
+  ['Sprint (no deleting): 30 minutes', '', () => startTimer(30, true)],
+  ['Writing stats', '', showStats]
+];
+
+COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS);
 let palSel = 0, palItems = [], palMode = 'cmd';
 function openPalette(mode, prefill) {
   palMode = mode === 'doc' ? 'doc' : 'cmd'; palSel = 0;
@@ -1361,6 +1490,7 @@ ed.addEventListener('input', () => {
 ed.addEventListener('keydown', e => {
   document.body.classList.add('typing');
   if (popKey(e)) return;
+  if (timer && timer.hard && (e.key === 'Backspace' || e.key === 'Delete' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z'))) { e.preventDefault(); toast('Sprint: no deleting until the timer ends'); return; }
   if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter') { e.preventDefault(); ctrlEnter(); return; }
   if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); moveLines(e.key === 'ArrowUp' ? -1 : 1); return; }
   if (e.key === 'Backspace') { if (onBackspace(e)) return; }
@@ -1460,7 +1590,7 @@ addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragN = 0; document.body.classList.remove('drop'); if (e.dataTransfer?.files?.length) importFiles([...e.dataTransfer.files]); });
 
 // desktop wrapper hooks (Electron menu)
-window.wren = { newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { analyze, buildZip, openWiki, fromTemplate } };
+window.wren = { newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
 
 /* ───────── boot ───────── */
 document.body.classList.toggle('nosb', !S.sidebar || innerWidth <= 820);

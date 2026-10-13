@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src 'none'; object-src 'none'; frame-src 'self' about: https://open.spotify.com; connect-src 'self' https://*.wikipedia.org https://api.dictionaryapi.dev https://api.datamuse.com; worker-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Wren — a focused Markdown writer</title>
 <meta name="description" content="Wren is a calm, distraction-free Markdown writing app with focus mode, syntax highlighting, live preview and one-click export.">
@@ -51,6 +52,7 @@
         <button data-focus="paragraph" title="Focus paragraph">Para</button>
       </div>
       <button id="previewBtn" class="icon" title="Preview (Ctrl/⌘ Shift P)" aria-label="Toggle preview">◧</button>
+      <button id="musicBtn" class="icon" title="Music (Spotify)" aria-label="Music">🎵</button>
       <button id="researchBtn" class="icon" title="Research on Wikipedia (Ctrl/⌘ Shift L)" aria-label="Research on Wikipedia">📖</button>
       <button id="findBtn" class="icon" title="Find & replace (Ctrl/⌘ F)" aria-label="Find">⌕</button>
       <button id="exportBtn" class="icon" title="Export" aria-label="Export">⇪</button>
@@ -85,13 +87,20 @@
       </div>
       <div id="preview" hidden></div>
       <aside id="research" hidden>
-        <div class="res-head"><input id="resInput" type="search" placeholder="Search Wikipedia…" aria-label="Search Wikipedia"><select id="resLang" aria-label="Wikipedia language"></select><button id="resClose" class="icon" aria-label="Close research">✕</button></div>
+        <div class="res-head"><select id="resSrc" aria-label="Source"><option value="wiki">Wikipedia</option><option value="dict">Dictionary</option><option value="syn">Thesaurus</option></select><input id="resInput" type="search" placeholder="Search Wikipedia…" aria-label="Search Wikipedia"><select id="resLang" aria-label="Wikipedia language"></select><button id="resClose" class="icon" aria-label="Close research">✕</button></div>
         <div id="resBody" class="res-body"></div>
         <div id="resActions" class="res-actions" hidden><button data-act="quote" title="Insert the text you selected as a quote with its source">❝ Quote selection</button><button data-act="summary">Summary</button><button data-act="link">Link</button><button data-act="cite">Cite</button></div>
         <div class="res-foot">Text from Wikipedia · CC BY-SA 4.0 · only what you search is sent</div>
       </aside>
     </div>
 
+    <div id="music" hidden>
+      <div class="mu-head"><b>Music</b><small>Spotify · audio only, videos blocked</small><div class="spacer"></div><button id="muSize" class="icon" title="Expand or collapse the playlist" aria-label="Expand or collapse">⤢</button><button id="muClose" class="icon" title="Close and stop the music" aria-label="Close and stop the music">✕</button></div>
+      <div id="muPresets" class="chips"></div>
+      <div class="mu-add"><input id="muInput" placeholder="Paste a Spotify track, album, playlist or artist link" aria-label="Spotify link"><button id="muGo">Play</button></div>
+      <div id="muMsg" class="mu-msg" role="status"></div>
+      <div id="muFrame"></div>
+    </div>
     <footer id="status">
       <span id="stWords">0 words</span>
       <span id="stChars">0 chars</span>

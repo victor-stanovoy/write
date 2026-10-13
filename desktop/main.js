@@ -14,7 +14,13 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   });
   win.loadFile(path.join(__dirname, 'app', 'index.html'));
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  // Spotify's player opens its login in a popup; allow only that, send other links to the browser
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\/(accounts|open)\.spotify\.com\//.test(url)) return { action: 'allow', overrideBrowserWindowOptions: { width: 480, height: 720, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } } };
+    if (/^https?:/.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.session.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'fullscreen'));
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file:')) { e.preventDefault(); if (/^https?:/.test(url)) shell.openExternal(url); } });
   // leave room for the macOS traffic lights
   win.webContents.on('did-finish-load', () => { if (process.platform === 'darwin') win.webContents.insertCSS('#topbar{padding-left:84px!important;-webkit-app-region:drag}#topbar button,#topbar .seg{-webkit-app-region:no-drag}body.nosb #topbar{padding-left:84px!important}'); });
