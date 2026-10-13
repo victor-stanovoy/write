@@ -52,6 +52,7 @@
         <button data-focus="paragraph" title="Focus paragraph">Para</button>
       </div>
       <button id="previewBtn" class="icon" title="Preview (Ctrl/⌘ Shift P)" aria-label="Toggle preview">◧</button>
+      <button id="studioBtn" class="icon" title="Studio — visual editor (Ctrl/⌘ Shift E)" aria-label="Studio">🎨</button>
       <button id="musicBtn" class="icon" title="Music (Spotify)" aria-label="Music">🎵</button>
       <button id="researchBtn" class="icon" title="Research on Wikipedia (Ctrl/⌘ Shift L)" aria-label="Research on Wikipedia">📖</button>
       <button id="findBtn" class="icon" title="Find & replace (Ctrl/⌘ F)" aria-label="Find">⌕</button>
@@ -134,7 +135,9 @@
         <select data-k="theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option><option value="sepia">Sepia</option></select></label>
       <label>Accent <input type="color" data-k="accent"></label>
       <label>Font
-        <select data-k="font"><option value="mono">System mono</option><option value="courier">Courier</option><option value="menlo">Menlo / Consolas</option><option value="jetbrains">JetBrains / Fira</option></select></label>
+        <select data-k="font"><option value="mono">System mono</option><option value="courier">Courier</option><option value="menlo">Menlo / Consolas</option><option value="jetbrains">JetBrains / Fira</option><option value="serif">Serif (proportional)</option><option value="sans">Sans (proportional)</option></select></label>
+      <label>Preview &amp; export style
+        <select data-k="pvTheme"><option value="standard">Standard</option><option value="manuscript">Manuscript</option><option value="magazine">Magazine</option><option value="compact">Compact</option></select></label>
       <label>Size <input type="range" min="13" max="28" step="1" data-k="size"></label>
       <label>Line height <input type="range" min="1.3" max="2.2" step="0.05" data-k="lh"></label>
       <label>Line width <input type="range" min="420" max="1000" step="10" data-k="width"></label>
@@ -169,6 +172,8 @@
       <li><kbd>/</kbd> Slash menu · <kbd>[[</kbd> Link notes</li>
       <li><kbd>Ctrl/⌘ ↩</kbd> Open link / toggle task</li>
       <li><kbd>Alt ↑ ↓</kbd> Move line</li>
+      <li><kbd>Ctrl/⌘ Shift E</kbd> Studio visual editor</li>
+      <li><kbd>Ctrl/⌘ /</kbd> Comment line (hidden in preview)</li>
       <li><kbd>Ctrl/⌘ Shift L</kbd> Look up on Wikipedia</li>
       <li><kbd>Ctrl/⌘ Shift Enter</kbd> Full screen</li>
     </ul>

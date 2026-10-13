@@ -34,6 +34,8 @@ function buildMenu() {
       { label: 'New Document', accelerator: 'CmdOrCtrl+N', click: () => call('wren.newDoc()') },
       { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => call('wren.openFromDisk()') },
       { label: 'Save…', accelerator: 'CmdOrCtrl+S', click: () => call('wren.saveFile()') },
+      { label: 'New from Template…', click: () => call('wren.openTemplates()') },
+      { label: 'Studio (Visual Editor)', accelerator: 'CmdOrCtrl+Shift+E', click: () => call('wren.openStudio()') },
       { label: 'Quick Open…', accelerator: 'CmdOrCtrl+P', click: () => call("wren.openPalette('doc')") },
       { label: 'Back Up All Documents…', click: () => call('wren.backupAll()') },
       { label: 'Export All as ZIP…', click: () => call('wren.exportZip()') },

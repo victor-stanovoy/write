@@ -17,7 +17,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const defaults = {
   theme: 'auto', accent: '#10a5c8', font: 'mono', size: 18, lh: 1.7, width: 680,
   focus: 'off', typewriter: true, spell: false, dailyGoal: 500, sidebar: true, preview: false,
-  smart: true, autopair: true, fillers: false,
+  smart: true, autopair: true, fillers: false, pvTheme: 'standard',
   pos: { noun: false, verb: false, adj: false, adv: false, conj: false }
 };
 const S = Object.assign({}, defaults, store.get('settings', {}));
@@ -26,7 +26,9 @@ const FONTS = {
   mono: 'ui-monospace,"SF Mono","JetBrains Mono","IBM Plex Mono",Menlo,Consolas,"Liberation Mono",monospace',
   courier: '"Courier Prime","Courier New",Courier,monospace',
   menlo: 'Menlo,Monaco,Consolas,"DejaVu Sans Mono",monospace',
-  jetbrains: '"JetBrains Mono","Fira Code","Fira Mono","Source Code Pro",monospace'
+  jetbrains: '"JetBrains Mono","Fira Code","Fira Mono","Source Code Pro",monospace',
+  serif: '"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif',
+  sans: '-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Helvetica,Arial,sans-serif'
 };
 
 /* ───────── documents ───────── */
@@ -106,7 +108,7 @@ function titleSet() {
   return _tsS;
 }
 const hasDoc = x => titleSet().has(norm(x));
-const countWords = t => (t.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
+const countWords = t => (t.replace(/^\s*\/\/.*$/gm, '').replace(/<\/?(?:span|mark)[^>]*>/g, '').replace(/\]\(img:[A-Za-z0-9]+\)/g, '])').match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 
 let saveTimer = null, lastSnap = 0;
 function persist() {
@@ -177,7 +179,7 @@ function posWrap(text) {
 }
 
 /* ───────── markdown highlighting (editor backdrop) ───────── */
-const INL = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_|`[^`\n]+`|!?\[[^\]\n]*\]\([^)\n]*\)|\[\[[^\]\n]+\]\]|~~[^~\n]+~~|https?:\/\/[^\s)]+)/g;
+const INL = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_|`[^`\n]+`|!?\[[^\]\n]*\]\([^)\n]*\)|\[\[[^\]\n]+\]\]|~~[^~\n]+~~|<\/?(?:span|mark)(?: style="[^"\n]*")?>|https?:\/\/[^\s)]+)/g;
 function inl(text) {
   let out = '', last = 0, m;
   INL.lastIndex = 0;
@@ -188,6 +190,7 @@ function inl(text) {
     else if (/^[*_]/.test(t)) out += '<span class="mk">' + t[0] + '</span><span class="i">' + posWrap(t.slice(1, -1)) + '</span><span class="mk">' + t[0] + '</span>';
     else if (t[0] === '`') out += '<span class="code"><span class="mk">`</span>' + esc(t.slice(1, -1)) + '<span class="mk">`</span></span>';
     else if (t.startsWith('~~')) out += '<span class="mk">~~</span><span class="s">' + posWrap(t.slice(2, -2)) + '</span><span class="mk">~~</span>';
+    else if (t[0] === '<') out += '<span class="mk">' + esc(t) + '</span>';
     else if (t.startsWith('[[')) out += '<span class="wk' + (hasDoc(t.slice(2, -2).split('|')[0]) ? '' : ' miss') + '">' + esc(t) + '</span>';
     else out += '<span class="lk">' + esc(t) + '</span>';
     last = m.index + t.length;
@@ -202,6 +205,7 @@ function hlLine(l, st, atStart) {
   }
   if (atStart && FENCE.test(l)) { st.fence = true; return '<span class="mk">' + esc(l) + '</span>'; }
   let m;
+  if (atStart && /^\s*\/\/(\s|$)/.test(l)) return '<span class="cmt">' + esc(l) + '</span>';
   if (atStart && (m = l.match(/^(#{1,6})(\s+)(.*)$/))) return '<span class="h h' + m[1].length + '"><span class="mk">' + m[1] + m[2] + '</span>' + inl(m[3]) + '</span>';
   if (atStart && /^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) return '<span class="mk">' + esc(l) + '</span>';
   if (atStart && (m = l.match(/^(\s*>+\s?)(.*)$/))) return '<span class="mk">' + esc(m[1]) + '</span><span class="quote">' + inl(m[2]) + '</span>';
@@ -522,11 +526,15 @@ function onTab(e) {
 /* ───────── markdown → HTML ───────── */
 const slug = s => s.toLowerCase().replace(/<[^>]+>/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-');
 function inlineMd(s) {
-  const codes = [], wikis = [];
-  s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
+  const codes = [], wikis = [], tags = [];
+  s = s.replace(/\\([\\`*_{}\[\]()#+\-.!~<>|])/g, (_, c) => '\u0002' + c.charCodeAt(0) + '\u0002');
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c.replace(/\u0002(\d+)\u0002/g, (_, n) => '\\' + String.fromCharCode(+n))); return '\u0000' + (codes.length - 1) + '\u0000'; });
+  s = s.replace(/<span style="color:(#[0-9a-fA-F]{3,8})">/g, (_, c) => { tags.push('<span style="color:' + c + '">'); return '\u0003' + (tags.length - 1) + '\u0003'; })
+    .replace(/<mark style="background:(#[0-9a-fA-F]{3,8})">/g, (_, c) => { tags.push('<mark style="background:' + c + '">'); return '\u0003' + (tags.length - 1) + '\u0003'; })
+    .replace(/<\/(span|mark)>/g, (_, t) => { tags.push('</' + t + '>'); return '\u0003' + (tags.length - 1) + '\u0003'; });
   s = esc(s);
   s = s.replace(/\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g, (_, t, al) => { wikis.push('<a class="wiki' + (hasDoc(unesc(t)) ? '' : ' miss') + '" data-wiki="' + t.trim().replace(/"/g, '&quot;') + '" href="#wiki">' + (al || t) + '</a>'); return '\u0001' + (wikis.length - 1) + '\u0001'; });
-  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, alt, src, ti) => isVideoUrl(unesc(src)) ? '<span class="blocked">🚫 video blocked</span>' : '<img alt="' + alt + '" src="' + safeUrl(src) + '"' + (ti ? ' title="' + ti + '"' : '') + '>');
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, alt, src, ti) => isVideoUrl(unesc(src)) ? '<span class="blocked">🚫 video blocked</span>' : '<img alt="' + alt + '" src="' + (/^img:/.test(src) ? (imgData(src.slice(4)) || '') : safeUrl(src)) + '"' + (ti ? ' title="' + ti + '"' : '') + '>');
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, tx, href) => '<a href="' + safeUrl(href) + '" target="_blank" rel="noopener">' + tx + '</a>');
   s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
   s = s.replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, a, b) => '<strong>' + (a || b) + '</strong>');
@@ -534,6 +542,8 @@ function inlineMd(s) {
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   s = s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<code>' + esc(codes[i]) + '</code>');
   s = s.replace(/\u0001(\d+)\u0001/g, (_, i) => wikis[i]);
+  s = s.replace(/\u0003(\d+)\u0003/g, (_, i) => tags[i]);
+  s = s.replace(/\u0002(\d+)\u0002/g, (_, c) => esc(String.fromCharCode(+c)));
   return s;
 }
 function safeUrl(u) { u = u.replace(/&amp;/g, '&'); return /^\s*(javascript|data:text|vbscript):/i.test(u) ? '#' : esc(u).replace(/"/g, '&quot;'); }
@@ -548,14 +558,16 @@ function buildList(items, start) {
   }
   return [html + '</' + (ordered ? 'ol' : 'ul') + '>', i];
 }
-function renderMarkdown(src) {
-  const lines = src.replace(/\r\n?/g, '\n').split('\n');
+function renderMarkdown(src, depth = 0) {
+  const lines = src.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?-->/g, '').split('\n');
   const out = []; let i = 0;
-  const isBlockStart = l => /^(#{1,6}\s|\s*>|\s*```|\s*~~~|\s*([-*_])(\s*\2){2,}\s*$|\s*([-*+]|\d+[.)])\s)/.test(l);
+  const isCmt = l => /^\s*\/\/(\s|$)/.test(l);
+  const isBlockStart = l => isCmt(l) || /^\s*!\[\[[^\]\n]+\]\]\s*$/.test(l) || /^(#{1,6}\s|\s*>|\s*```|\s*~~~|\s*([-*_])(\s*\2){2,}\s*$|\s*([-*+]|\d+[.)])\s)/.test(l);
   while (i < lines.length) {
     const l = lines[i];
-    if (!l.trim()) { i++; continue; }
+    if (!l.trim() || isCmt(l)) { i++; continue; }
     let m;
+    if ((m = l.match(/^\s*!\[\[([^\]\n]+)\]\]\s*$/))) { out.push(renderEmbed(m[1].trim(), depth)); i++; continue; }
     if ((m = l.match(/^\s*(```|~~~)\s*([\w+-]*)/))) {
       const buf = []; i++;
       while (i < lines.length && !lines[i].trim().startsWith(m[1])) buf.push(lines[i++]);
@@ -566,7 +578,7 @@ function renderMarkdown(src) {
     if (/^\s*>/.test(l)) {
       const buf = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
-      out.push('<blockquote>' + renderMarkdown(buf.join('\n')) + '</blockquote>'); continue;
+      out.push('<blockquote>' + renderMarkdown(buf.join('\n'), depth) + '</blockquote>'); continue;
     }
     if (/^\s*\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
       const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
@@ -598,7 +610,7 @@ let pvTimer;
 function updatePreview() {
   if ($('#preview').hidden) return;
   clearTimeout(pvTimer);
-  pvTimer = setTimeout(() => { $('#preview').innerHTML = '<div class="md">' + renderMarkdown(ed.value) + '</div>'; }, 120);
+  pvTimer = setTimeout(() => { $('#preview').innerHTML = '<div class="md th-' + S.pvTheme + '">' + renderMarkdown(ed.value) + '</div>'; }, 120);
 }
 function togglePreview(force) {
   S.preview = force ?? !S.preview;
@@ -610,7 +622,7 @@ function togglePreview(force) {
 const EXPORT_CSS = 'body{font:17px/1.7 Georgia,"Times New Roman",serif;max-width:720px;margin:48px auto;padding:0 24px;color:#222}h1,h2,h3,h4{font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.25;margin:1.6em 0 .5em}a{color:#0b7fa0}code{font-family:Menlo,Consolas,monospace;font-size:.88em;background:#f1f1ee;padding:.1em .35em;border-radius:4px}pre{background:#f1f1ee;padding:14px 16px;border-radius:8px;overflow:auto}pre code{background:none;padding:0}blockquote{margin:1em 0;padding-left:1em;border-left:3px solid #10a5c8;color:#555}table{border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 12px}img{max-width:100%}hr{border:0;border-top:1px solid #ddd}li.task{list-style:none;margin-left:-1.2em}';
 const unwiki = h => h.replace(/<a class="wiki[^"]*"[^>]*>([\s\S]*?)<\/a>/g, '<span>$1</span>');
 const exportBody = () => unwiki(renderMarkdown(ed.value));
-const fullHtml = () => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(titleOf({ text: ed.value })) + '</title><style>' + EXPORT_CSS + '</style></head><body>' + exportBody() + '</body></html>';
+const fullHtml = () => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(titleOf({ text: ed.value })) + '</title><style>' + EXPORT_CSS + EMBED_CSS + (THEME_CSS[S.pvTheme] || '') + '</style></head><body>' + exportBody() + '</body></html>';
 const fileName = ext => (titleOf({ text: ed.value }).replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 60) || 'Untitled') + '.' + ext;
 function download(name, data, type) {
   const url = URL.createObjectURL(new Blob([data], { type }));
@@ -624,16 +636,16 @@ function plainText() {
 async function saveFile() {
   const h = handles[curId];
   try {
-    if (h) { const w = await h.createWritable(); await w.write(ed.value); await w.close(); toast('Saved to ' + h.name); return; }
+    if (h) { const w = await h.createWritable(); await w.write(mdOut(ed.value)); await w.close(); toast('Saved to ' + h.name); return; }
     if (window.showSaveFilePicker) {
       const nh = await showSaveFilePicker({ suggestedName: fileName('md'), types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
-      const w = await nh.createWritable(); await w.write(ed.value); await w.close(); handles[curId] = nh; toast('Saved to ' + nh.name); return;
+      const w = await nh.createWritable(); await w.write(mdOut(ed.value)); await w.close(); handles[curId] = nh; toast('Saved to ' + nh.name); return;
     }
   } catch (e) { if (e.name === 'AbortError') return; }
-  download(fileName('md'), ed.value, 'text/markdown'); toast('Downloaded ' + fileName('md'));
+  download(fileName('md'), mdOut(ed.value), 'text/markdown'); toast('Downloaded ' + fileName('md'));
 }
 const EXPORTS = {
-  md: () => download(fileName('md'), ed.value, 'text/markdown'),
+  md: () => download(fileName('md'), mdOut(ed.value), 'text/markdown'),
   txt: () => download(fileName('txt'), plainText(), 'text/plain'),
   html: () => download(fileName('html'), fullHtml(), 'text/html'),
   doc: () => download(fileName('doc'), '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + esc(titleOf({ text: ed.value })) + '</title></head><body>' + exportBody() + '</body></html>', 'application/msword'),
@@ -642,8 +654,8 @@ const EXPORTS = {
     document.body.appendChild(f); f.srcdoc = fullHtml();
     f.onload = () => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 60000); };
   },
-  copyhtml: async () => { try { const html = exportBody(); await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([ed.value], { type: 'text/plain' }) })]); toast('Copied rich text'); } catch (e) { toast('Copy not allowed here'); } },
-  copymd: async () => { try { await navigator.clipboard.writeText(ed.value); toast('Markdown copied'); } catch (e) { toast('Copy not allowed here'); } }
+  copyhtml: async () => { try { const html = exportBody(); await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([mdOut(ed.value)], { type: 'text/plain' }) })]); toast('Copied rich text'); } catch (e) { toast('Copy not allowed here'); } },
+  copymd: async () => { try { await navigator.clipboard.writeText(mdOut(ed.value)); toast('Markdown copied'); } catch (e) { toast('Copy not allowed here'); } }
 };
 function showExportMenu() {
   const m = $('#exportMenu');
@@ -659,7 +671,7 @@ async function importFiles(files) {
   let n = 0;
   for (const f of files) {
     if (!/\.(md|markdown|mdown|txt|text)$/i.test(f.name) && !f.type.startsWith('text/')) { toast('Skipped ' + f.name); continue; }
-    const text = await f.text(); newDoc(text); n++;
+    const text = await f.text(); newDoc(text); adoptImages(); n++;
   }
   if (n) toast('Imported ' + n + (n === 1 ? ' file' : ' files'));
 }
@@ -667,7 +679,7 @@ async function openFromDisk() {
   if (window.showOpenFilePicker) {
     try {
       const [h] = await showOpenFilePicker({ types: [{ description: 'Text', accept: { 'text/*': ['.md', '.markdown', '.txt'] } }] });
-      const text = await (await h.getFile()).text(); newDoc(text); handles[curId] = h; toast('Opened ' + h.name + ' — Ctrl/⌘ S saves back to it');
+      const text = await (await h.getFile()).text(); newDoc(text); adoptImages(); handles[curId] = h; toast('Opened ' + h.name + ' — Ctrl/⌘ S saves back to it');
     } catch (e) { }
   } else $('#fileInput').click();
 }
@@ -729,7 +741,9 @@ function applySettings() {
   document.body.dataset.theme = th;
   const meta = $('meta[name=theme-color]'); if (meta) meta.content = { light: '#fafaf8', dark: '#17181a', sepia: '#f4ecd8' }[th];
   r.setProperty('--pad-top', S.typewriter ? '38vh' : '56px'); r.setProperty('--pad-bot', S.typewriter ? '50vh' : '30vh');
+  document.body.dataset.prop = (S.font === 'serif' || S.font === 'sans') ? '1' : '';
   ed.spellcheck = !!S.spell;
+  if (!$('#preview').hidden && typeof updatePreview === 'function') updatePreview();
   $$('[data-focus]').forEach(b => b.classList.toggle('on', b.dataset.focus === S.focus));
   render();
 }
@@ -778,6 +792,11 @@ const SLASH = [
   { label: 'Link', k: 'url href', desc: '[text](url)', snip: '[$0](url)' },
   { label: 'Image', k: 'picture photo', desc: '![alt](url)', snip: '![$0](url)' },
   { label: 'Wiki link', k: 'note backlink', desc: '[[Note]]', snip: '[[$0]]' },
+  { label: 'Embed note', k: 'transclude include', desc: '![[Note]]', snip: '![[$0]]' },
+  { label: 'Comment', k: 'note hidden private', desc: '// …', snip: '// $0' },
+  { label: 'Color text', k: 'colour red blue', desc: '<span>', snip: '<span style="color:#e11d48">$0</span>' },
+  { label: 'Highlight', k: 'mark marker', desc: '<mark>', snip: '<mark style="background:#fde68a">$0</mark>' },
+  { label: 'Image from file', k: 'upload picture photo', desc: '', snip: '', run: () => pickImage() },
   { label: 'Today’s date', k: 'date today', desc: '', get snip() { return new Date().toLocaleDateString(undefined, { dateStyle: 'full' }) + '$0'; } },
   { label: 'Time', k: 'clock now', desc: '', get snip() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '$0'; } },
   { label: 'Table of contents', k: 'toc outline', desc: '', snip: '', run: () => insertTOC() }
@@ -1008,21 +1027,36 @@ function insertTOC() {
 }
 
 /* ───────── templates ───────── */
-const TEMPLATES = {
-  'Journal entry': '# {{date}}\n\n## Gratitude\n\n- $0\n\n## Highlights\n\n\n\n## Tomorrow\n\n- [ ] \n',
-  'Meeting notes': '# Meeting: $0\n\n**Date:** {{date}}  \n**Attendees:** \n\n## Agenda\n\n1. \n\n## Notes\n\n\n\n## Action items\n\n- [ ] \n',
-  'Blog post': '# $0\n\n> One-sentence summary of the post.\n\n## Introduction\n\n\n\n## Main points\n\n\n\n## Conclusion\n\n',
-  'Weekly review': '# Week of {{date}}\n\n## Wins\n\n- $0\n\n## What didn’t go well\n\n- \n\n## Lessons\n\n- \n\n## Next week\n\n- [ ] \n',
-  'Project brief': '# $0\n\n## Goal\n\n\n\n## Audience\n\n\n\n## Scope\n\n- In:\n- Out:\n\n## Milestones\n\n- [ ] \n\n## Risks\n\n',
-  'Letter': '{{date}}\n\nDear $0,\n\n\n\nKind regards,\n'
-};
+const TPL = [
+  { name: 'Journal entry', cat: 'Personal', md: '# {{date}}\n\n> **How I feel today:** $0\n\n## <span style="color:#f97316">Gratitude</span>\n\n- \n- \n- \n\n## <span style="color:#0891b2">Highlights</span>\n\n\n\n## <span style="color:#7c3aed">Tomorrow</span>\n\n- [ ] \n' },
+  { name: 'Morning pages', cat: 'Personal', md: '# Morning pages\n\n*{{date}} · write three pages without stopping, without editing.*\n\n---\n\n$0\n' },
+  { name: 'Gratitude log', cat: 'Personal', md: '# Gratitude log\n\n*{{date}}*\n\n| | Today I’m grateful for |\n| --- | --- |\n| 1 | $0 |\n| 2 | |\n| 3 | |\n\n> **A small win:** \n' },
+  { name: 'Weekly review', cat: 'Personal', md: '# Week of {{date}}\n\n## <span style="color:#16a34a">Wins</span>\n\n- $0\n\n## <span style="color:#e11d48">What didn’t go well</span>\n\n- \n\n## <span style="color:#2563eb">Lessons</span>\n\n- \n\n## Next week\n\n- [ ] \n- [ ] \n- [ ] \n' },
+  { name: 'Recipe', cat: 'Personal', md: '# $0\n\n*Serves 4 · Prep 15 min · Cook 30 min*\n\n---\n\n## Ingredients\n\n- \n- \n- \n\n## Method\n\n1. \n2. \n3. \n\n> **Tip:** \n' },
+  { name: 'Trip plan', cat: 'Personal', md: '# $0\n\n**When:** {{date}}  \n**Who:** \n\n## Days\n\n| Day | Morning | Afternoon | Evening |\n| --- | --- | --- | --- |\n| 1 | | | |\n| 2 | | | |\n| 3 | | | |\n\n## Packing\n\n- [ ] Passport\n- [ ] Charger\n- [ ] \n' },
+  { name: 'Meeting notes', cat: 'Work', md: '# Meeting: $0\n\n**Date:** {{date}}  \n**Attendees:** \n\n---\n\n## Agenda\n\n1. \n2. \n\n## Notes\n\n\n\n## Decisions\n\n> \n\n## Action items\n\n- [ ] \n- [ ] \n' },
+  { name: 'One-on-one', cat: 'Work', md: '# 1:1 with $0\n\n*{{date}}*\n\n## Their topics\n\n- \n\n## My topics\n\n- \n\n## Feedback\n\n| Going well | Could be better |\n| --- | --- |\n| | |\n\n## Follow-ups\n\n- [ ] \n' },
+  { name: 'Project brief', cat: 'Work', md: '# $0\n\n> **One-line summary:** \n\n## <span style="color:#2563eb">Goal</span>\n\n\n\n## Audience\n\n\n\n## Scope\n\n| In | Out |\n| --- | --- |\n| | |\n\n## Milestones\n\n- [ ] \n- [ ] \n\n## Risks\n\n- \n' },
+  { name: 'Product spec', cat: 'Work', md: '# $0\n\n**Status:** Draft · **Owner:** · **Updated:** {{date}}\n\n## Problem\n\n\n\n## Users\n\n\n\n## Requirements\n\n1. **Must:** \n2. **Should:** \n3. **Could:** \n\n## Open questions\n\n- \n\n## Success metrics\n\n- \n' },
+  { name: 'Cover letter', cat: 'Work', md: '{{date}}\n\nDear $0,\n\nI’m excited to apply for the role of **[position]** at **[company]**. \n\n\n\nThank you for your time and consideration.\n\nKind regards,  \n[Your name]\n' },
+  { name: 'Blog post', cat: 'Writing', md: '# $0\n\n*A short subtitle that makes people want to read on.*\n\n---\n\n> **In short:** one sentence that sums up the post.\n\n## Introduction\n\n\n\n## The main idea\n\n\n\n## What to do next\n\n\n\n---\n\n*Thanks for reading.*\n' },
+  { name: 'Newsletter', cat: 'Writing', md: '# $0\n\n*Issue · {{date}}*\n\n---\n\n## <span style="color:#7c3aed">The big story</span>\n\n\n\n## Three quick links\n\n1. \n2. \n3. \n\n## One thing I’m reading\n\n> \n\n---\n\nSee you next time.\n' },
+  { name: 'Letter', cat: 'Writing', md: '{{date}}\n\nDear $0,\n\n\n\nWith warm regards,\n' },
+  { name: 'Essay outline', cat: 'Study', md: '# $0\n\n> **Thesis:** \n\n## 1. Introduction\n\n- Hook\n- Context\n- Thesis\n\n## 2. Argument one\n\n- Claim\n- Evidence\n- Analysis\n\n## 3. Argument two\n\n- Claim\n- Evidence\n- Analysis\n\n## 4. Counterargument\n\n\n\n## 5. Conclusion\n\n' },
+  { name: 'Study notes', cat: 'Study', md: '# $0\n\n*{{date}}*\n\n| Cues | Notes |\n| --- | --- |\n| | |\n| | |\n\n## <span style="color:#16a34a">Summary</span>\n\n\n\n## Questions to review\n\n- [ ] \n' },
+  { name: 'Book notes', cat: 'Study', md: '# $0\n\n**Author:** · **Finished:** {{date}} · **Rating:** ☆☆☆☆☆\n\n## The idea in one line\n\n\n\n## Highlights\n\n> \n\n## What I’ll apply\n\n- [ ] \n' },
+  { name: 'Short story', cat: 'Creative', md: '# $0\n\n*A short story*\n\n---\n\n// Setting: \n// Character: \n// What changes: \n\nIt began \n' },
+  { name: 'Character profile', cat: 'Creative', md: '# $0\n\n| | |\n| --- | --- |\n| **Age** | |\n| **Role** | |\n| **Wants** | |\n| **Fears** | |\n\n## Voice\n\n> \n\n## Backstory\n\n\n\n## Relationships\n\n- \n' }
+];
 function fromTemplate(name) {
+  const t = TPL.find(x => x.name === name); if (!t) return;
   const d = new Date();
-  let txt = TEMPLATES[name].replace(/\{\{date\}\}/g, d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
+  let txt = t.md.replace(/\{\{date\}\}/g, d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
   const c = txt.indexOf('$0'); txt = txt.replace('$0', '');
   newDoc(txt); const pos = c < 0 ? txt.length : c;
   ed.setSelectionRange(pos, pos); ensureCaret(false); render();
 }
+
 
 /* ───────── focus timer + read aloud ───────── */
 let timer = null;
@@ -1076,6 +1110,7 @@ async function restoreBackup(file) {
       if (ex && ex.text === d.text) continue;
       const id = (!d.id || ex) ? uid() : d.id;
       docs[id] = { id, text: d.text, updated: d.updated || Date.now(), history: Array.isArray(d.history) ? d.history.slice(0, 25) : [], pinned: !!d.pinned };
+      if (d.images && typeof d.images === 'object') docs[id].images = d.images;
       if (d.trashed) docs[id].trashed = d.trashed;
       if (ex) copies++; else added++;
     }
@@ -1113,14 +1148,14 @@ function exportZip() {
   const files = liveDocs().map(d => {
     const base = (titleOf({ text: textOf(d) }).replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 60)) || 'Untitled'; let n = base, i = 2;
     while (used.has(n.toLowerCase())) n = base + ' (' + i++ + ')';
-    used.add(n.toLowerCase()); return { name: n + '.md', data: enc.encode(textOf(d)) };
+    used.add(n.toLowerCase()); return { name: n + '.md', data: enc.encode(mdOut(textOf(d), d)) };
   });
   download('Wren documents.zip', buildZip(files), 'application/zip'); toast('Exported ' + files.length + ' documents');
 }
 
 const MORE_COMMANDS = [
   ['Quick open document…', mod_() + ' P', () => openPalette('doc')],
-  ...Object.keys(TEMPLATES).map(n => ['New: ' + n, '', () => fromTemplate(n)]),
+  ...TPL.map(t => ['New: ' + t.name, '', () => fromTemplate(t.name)]),
   ['Open link under cursor / toggle task', mod_() + ' ↩', ctrlEnter],
   ['Show backlinks', '', () => { toggleSidebar(true); setTab('links'); }],
   ['Show insights', '', () => { toggleSidebar(true); setTab('insights'); }],
@@ -1444,7 +1479,395 @@ const EXTRA_COMMANDS = [
   ['Writing stats', '', showStats]
 ];
 
-COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS);
+/* ───────── images (stored inside the note, referenced as img:ID) ───────── */
+let imgScope = null;
+const imgData = id => { const d = imgScope || docs[curId]; return d && d.images && d.images[id]; };
+const mdOut = (t, d) => { d = d || docs[curId]; return t.replace(/\]\(img:([A-Za-z0-9]+)\)/g, (m, id) => d && d.images && d.images[id] ? '](' + d.images[id] + ')' : m); };
+const readDataURL = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+function storeImage(data) {
+  const d = docs[curId]; d.images = d.images || {};
+  for (const k in d.images) if (d.images[k] === data) return k;
+  const id = uid(); d.images[id] = data;
+  if (!store.set('docs', docs)) { delete d.images[id]; toast('Not enough storage for this image. Export a backup and clear space.'); return null; }
+  return id;
+}
+async function addImage(file) {
+  if (!/^image\/(png|jpe?g|gif|webp)$/.test(file.type)) { toast(file.type.startsWith('video/') ? 'Videos are blocked in Wren' : 'Only PNG, JPEG, GIF and WebP images are supported'); return null; }
+  let data = await readDataURL(file);
+  if (file.type !== 'image/gif') {
+    try {
+      const img = await loadImg(data), sc = Math.min(1, 1400 / Math.max(img.width, img.height));
+      if (sc < 1 || file.size > 350000) {
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const out = c.toDataURL(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/webp', .85);
+        if (out.length < data.length) data = out;
+      }
+    } catch (e) { }
+  }
+  if (data.length > 2.5e6) { toast('That image is too large (about 1.8 MB max)'); return null; }
+  return storeImage(data);
+}
+const imgAlt = n => (n || '').replace(/\.[a-z0-9]+$/i, '').replace(/[\[\]()]/g, '').replace(/[_-]+/g, ' ').trim();
+async function insertImageFile(file) {
+  const id = await addImage(file); if (!id) return;
+  insertBlock('![' + imgAlt(file.name) + '](img:' + id + ')'); toast('Image added');
+}
+function handleFiles(files) {
+  const rest = [];
+  for (const f of files) { if (f.type.startsWith('image/')) insertImageFile(f); else if (f.type.startsWith('video/')) toast('Videos are blocked in Wren'); else rest.push(f); }
+  if (rest.length) importFiles(rest);
+}
+function pickImage() {
+  const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/png,image/jpeg,image/gif,image/webp'; i.multiple = true;
+  i.onchange = () => [...i.files].forEach(insertImageFile); i.click();
+}
+function adoptImages() {
+  const t = ed.value, d = docs[curId]; let found = false;
+  const out = t.replace(/\]\((data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+)\)/g, (m, data) => { const id = storeImage(data); if (!id) return m; found = true; return '](img:' + id + ')'; });
+  if (found) { ed.value = out; d.text = out; persist(); render(); updatePreview(); }
+}
+function toggleComment() {
+  const t = ed.value, a = ed.selectionStart, b = ed.selectionEnd, [la] = lineBounds(t, a), [, lb] = lineBounds(t, b > a && t[b - 1] === '\n' ? b - 1 : b);
+  const lines = t.slice(la, lb).split('\n'), all = lines.every(l => !l.trim() || /^\s*\/\/(\s|$)/.test(l));
+  const out = lines.map(l => !l.trim() ? l : all ? l.replace(/^(\s*)\/\/ ?/, '$1') : '// ' + l).join('\n');
+  replaceRange(la, lb, out, la, la + out.length);
+}
+function renderEmbed(title, depth) {
+  const d = liveDocs().find(x => norm(titleOf({ text: textOf(x) })) === norm(title));
+  if (!d) return '<div class="embed miss">Note “' + esc(title) + '” not found</div>';
+  if (depth >= 2 || d.id === curId) return '<div class="embed miss">Can’t embed “' + esc(title) + '” here</div>';
+  const prev = imgScope; imgScope = d;
+  try { return '<div class="embed"><div class="embed-t">' + esc(titleOf({ text: textOf(d) })) + '</div>' + renderMarkdown(textOf(d).replace(/^\s*#[^\n]*\n/, ''), depth + 1) + '</div>'; } finally { imgScope = prev; }
+}
+const EMBED_CSS = '.embed{border-left:3px solid #bbb;padding:.2em 1em;margin:1em 0;background:#f7f7f5;border-radius:0 8px 8px 0}.embed-t{font:600 12px sans-serif;text-transform:uppercase;letter-spacing:.06em;color:#777}.blocked{color:#888;font-style:italic}';
+const THEME_CSS = {
+  standard: '',
+  manuscript: 'body{font:18px/2 "Times New Roman",Times,serif;max-width:640px}h1{text-align:center;font-weight:400;letter-spacing:.08em;text-transform:uppercase}h2,h3{font-weight:400;font-style:italic}p{margin:0;text-indent:1.6em}h1+p,h2+p,h3+p,hr+p,blockquote+p{text-indent:0}',
+  magazine: 'body{font:17px/1.7 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;max-width:760px}h1{font-size:2.8em;line-height:1.05;letter-spacing:-.02em;border-bottom:4px solid #10a5c8;padding-bottom:.2em}h1+p::first-letter{font-size:3.2em;float:left;line-height:.85;padding:.05em .1em 0 0;color:#10a5c8;font-weight:700}blockquote{border-left:0;font-size:1.25em;font-style:italic;color:#10a5c8;padding-left:0}',
+  compact: 'body{font:15px/1.5 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;max-width:700px;margin:24px auto}h1,h2,h3{margin:1em 0 .3em}p,li{margin:.3em 0}'
+};
+
+/* ───────── template gallery ───────── */
+let tplCat = 'All';
+function openTemplates() {
+  let el = $('#tplModal');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'tplModal'; el.className = 'overlay';
+    el.innerHTML = '<div class="card tpl"><div class="set-head"><h2>New from template</h2><button class="icon" id="tplClose" aria-label="Close">✕</button></div><div class="tpl-bar"><input id="tplSearch" type="search" placeholder="Search templates" aria-label="Search templates"><div id="tplCats" class="chips"></div></div><div id="tplGrid" class="tpl-grid"></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('mousedown', e => { if (e.target === el) el.hidden = true; });
+    el.querySelector('#tplClose').onclick = () => { el.hidden = true; ed.focus(); };
+    el.querySelector('#tplSearch').addEventListener('input', renderTemplates);
+    el.querySelector('#tplCats').addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) { tplCat = b.dataset.c; renderTemplates(); } });
+    el.querySelector('#tplGrid').addEventListener('click', e => { const c = e.target.closest('[data-n]'); if (c) { el.hidden = true; fromTemplate(c.dataset.n); } });
+  }
+  el.hidden = false; renderTemplates(); el.querySelector('#tplSearch').focus();
+}
+function renderTemplates() {
+  const q = $('#tplSearch').value.trim().toLowerCase(), cats = ['All', ...new Set(TPL.map(t => t.cat))];
+  $('#tplCats').innerHTML = cats.map(c => '<button class="chip' + (c === tplCat ? ' on' : '') + '" data-c="' + c + '">' + c + '</button>').join('');
+  const list = TPL.filter(t => (tplCat === 'All' || t.cat === tplCat) && (!q || (t.name + ' ' + t.cat).toLowerCase().includes(q)));
+  $('#tplGrid').innerHTML = list.map(t => '<button class="tcard" data-n="' + attr(t.name) + '"><div class="tprev md">' + renderMarkdown(t.md.replace(/\{\{date\}\}/g, 'Today').replace('$0', '').slice(0, 520)) + '</div><div class="tmeta"><b>' + esc(t.name) + '</b><span>' + t.cat + '</span></div></button>').join('') || '<div class="empty">No templates match.</div>';
+}
+$('#tplBtn').onclick = openTemplates;
+$('#studioBtn').onclick = openStudio;
+
+/* ───────── Studio: visual editor that writes Markdown ───────── */
+const ST = { dirty: false, hist: [], i: -1, range: null, drag: null, mo: null, snapT: 0 };
+const BLOCK_SET = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'UL', 'OL', 'PRE', 'HR', 'TABLE', 'FIGURE']);
+const TEXT_COLORS = ['#e11d48', '#f97316', '#ca8a04', '#16a34a', '#0891b2', '#2563eb', '#7c3aed', '#db2777', '#111827', '#6b7280'];
+const HILITES = ['#fde68a', '#fed7aa', '#fecaca', '#bbf7d0', '#a5f3fc', '#bfdbfe', '#ddd6fe', '#fbcfe8', '#e5e7eb'];
+const BLOCK_HTML = {
+  h1: '<h1>Heading</h1>', h2: '<h2>Section heading</h2>', p: '<p>Write something…</p>', quote: '<blockquote><p>A memorable quote</p></blockquote>',
+  list: '<ul><li>First</li><li>Second</li></ul>', tasks: '<ul><li><input type="checkbox"> A task</li></ul>', hr: '<hr>',
+  callout: '<blockquote><p><strong>Note</strong></p><p>Something worth remembering</p></blockquote>', code: '<pre><code>code</code></pre>'
+};
+const BLOCK_LABEL = { h1: 'Title', h2: 'Heading', p: 'Paragraph', quote: 'Quote', list: 'List', tasks: 'Tasks', hr: 'Divider', callout: 'Callout', code: 'Code' };
+
+function splitBlocks(md) {
+  const out = []; let cur = [], fence = false;
+  const push = () => { const t = cur.join('\n').replace(/^\n+|\n+$/g, ''); if (t.trim()) out.push(t); cur = []; };
+  for (const l of md.replace(/\r\n?/g, '\n').split('\n')) {
+    if (FENCE.test(l)) fence = !fence;
+    if (!fence && !l.trim() && !FENCE.test(l)) { push(); continue; }
+    cur.push(l);
+  }
+  push(); return out;
+}
+const isRawBlock = b => { const t = b.trim(); return t.startsWith('<!--') || /^!\[\[[^\]]+\]\]$/.test(t) || t.split('\n').every(l => /^\s*\/\/(\s|$)/.test(l)) || /^!\[[^\]]*\]\(([^)\s]+)\)$/.test(t) && isVideoUrl(t.match(/\(([^)\s]+)\)/)[1]); };
+const GRIP = '<span class="grip" contenteditable="false" draggable="true" title="Drag to move">⋮⋮</span>';
+const blockHtml = b => isRawBlock(b)
+  ? '<div class="blk raw" contenteditable="false" data-md="' + attr(b) + '">' + GRIP + '<code class="rawtxt">' + esc(b) + '</code></div>'
+  : '<div class="blk" data-md="' + attr(b) + '">' + GRIP + renderMarkdown(b) + '</div>';
+
+/* HTML → Markdown */
+const mdEsc = t => t.replace(/([\\`*_\[\]<>~])/g, '\\$1');
+function toHex(c) {
+  c = (c || '').trim().toLowerCase(); if (!c) return '';
+  if (/^#[0-9a-f]{3,8}$/.test(c)) return c;
+  const m = c.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/); if (!m) return '';
+  return '#' + [m[1], m[2], m[3]].map(x => (+x).toString(16).padStart(2, '0')).join('');
+}
+function wrapMd(mk, inner) { const core = inner.trim(); if (!core) return inner; const i = inner.indexOf(core); return inner.slice(0, i) + mk + core + mk + inner.slice(i + core.length); }
+function d2mNode(c) {
+  if (c.nodeType === 3) return mdEsc(c.nodeValue.replace(/\u00a0/g, ' '));
+  if (c.nodeType !== 1 || c.classList.contains('grip')) return '';
+  const tag = c.tagName.toLowerCase(), inner = () => d2mInline(c);
+  switch (tag) {
+    case 'strong': case 'b': return wrapMd('**', inner());
+    case 'em': case 'i': return wrapMd('*', inner());
+    case 'del': case 's': case 'strike': return wrapMd('~~', inner());
+    case 'code': return '`' + c.textContent.replace(/`/g, '') + '`';
+    case 'br': return '\n';
+    case 'a': {
+      if (c.classList.contains('wiki')) { const t = c.dataset.wiki || c.textContent, x = c.textContent; return '[[' + t + (x && x !== t ? '|' + x : '') + ']]'; }
+      const href = c.getAttribute('href') || ''; return href ? '[' + inner() + '](' + href + ')' : inner();
+    }
+    case 'img': {
+      let id = c.dataset.imgId; const src = c.getAttribute('src') || '', alt = mdEsc(c.getAttribute('alt') || '');
+      if (!id && /^data:image\//.test(src)) id = storeImage(src);
+      if (id) return '![' + alt + '](img:' + id + ')';
+      return /^https?:/.test(src) ? '![' + alt + '](' + src + ')' : '';
+    }
+    case 'span': { const h = toHex(c.style.color); return h ? '<span style="color:' + h + '">' + inner() + '</span>' : inner(); }
+    case 'mark': { const h = toHex(c.style.backgroundColor || c.style.background); return h ? '<mark style="background:' + h + '">' + inner() + '</mark>' : inner(); }
+    case 'input': return '';
+    default: return inner();
+  }
+}
+const d2mInline = p => [...p.childNodes].map(d2mNode).join('');
+const guardLine = t => t.replace(/^(#{1,6}\s|[-+]\s|>|---)/, '\\$1').replace(/^(\d+)([.)]) /, '$1\\$2 ');
+function d2mList(el, depth) {
+  const ordered = el.tagName === 'OL'; let n = parseInt(el.getAttribute('start') || '1', 10) || 1; const out = [];
+  for (const li of el.children) {
+    if (li.tagName !== 'LI') continue;
+    let text = '', cb = null; const nested = [];
+    for (const c of li.childNodes) {
+      if (c.nodeType === 1 && (c.tagName === 'UL' || c.tagName === 'OL')) nested.push(d2mList(c, depth + 1));
+      else if (c.nodeType === 1 && c.tagName === 'INPUT') cb = c;
+      else if (c.nodeType === 1 && (c.tagName === 'P' || c.tagName === 'DIV')) text += (text ? ' ' : '') + d2mInline(c);
+      else text += d2mNode(c);
+    }
+    out.push('  '.repeat(depth) + (ordered ? (n++) + '. ' : '- ') + (cb ? (cb.checked || cb.hasAttribute('checked') ? '[x] ' : '[ ] ') : '') + text.replace(/\n+/g, ' ').trim());
+    nested.forEach(x => out.push(x));
+  }
+  return out.join('\n');
+}
+function d2mTable(t) {
+  const trs = [...t.querySelectorAll('tr')]; if (!trs.length) return '';
+  const rows = trs.map(tr => [...tr.children].map(c => d2mInline(c).replace(/\|/g, '/').replace(/\n/g, ' ').trim()));
+  const al = [...trs[0].children].map(c => c.style.textAlign === 'center' ? ':---:' : c.style.textAlign === 'right' ? '---:' : '---');
+  const line = r => '| ' + rows[0].map((_, i) => r[i] || '').join(' | ') + ' |';
+  return [line(rows[0]), '| ' + al.join(' | ') + ' |'].concat(rows.slice(1).map(line)).join('\n');
+}
+function d2mBlock(el) {
+  const tag = el.tagName;
+  if (el.classList.contains('raw')) return el.dataset.md || '';
+  if (/^H[1-6]$/.test(tag)) return '#'.repeat(+tag[1]) + ' ' + d2mInline(el).replace(/\n/g, ' ').trim();
+  if (tag === 'P') return guardLine(d2mInline(el).replace(/[ \t]+\n/g, '\n').trim());
+  if (tag === 'BLOCKQUOTE') return d2mBlocks(el).split('\n').map(l => l ? '> ' + l : '>').join('\n');
+  if (tag === 'UL' || tag === 'OL') return d2mList(el, 0);
+  if (tag === 'PRE') { const code = el.querySelector('code'), lang = ((code && code.className.match(/language-([\w+-]+)/)) || [])[1] || ''; return '```' + lang + '\n' + el.textContent.replace(/\n$/, '') + '\n```'; }
+  if (tag === 'HR') return '---';
+  if (tag === 'TABLE') return d2mTable(el);
+  return d2mBlocks(el);
+}
+function d2mBlocks(root) {
+  const parts = []; let run = '';
+  const flush = () => { const t = run.replace(/[ \t]+\n/g, '\n').trim(); if (t) parts.push(guardLine(t)); run = ''; };
+  for (const c of root.childNodes) {
+    if (c.nodeType === 1 && BLOCK_SET.has(c.tagName)) { flush(); const t = d2mBlock(c); if (t !== '') parts.push(t); }
+    else run += d2mNode(c);
+  }
+  flush(); return parts.join('\n\n');
+}
+const d2mHtml = html => { const d = document.createElement('div'); d.innerHTML = html; return d2mBlocks(d); };
+function studioMarkdown() {
+  const out = [];
+  for (const b of $('#stCanvas').childNodes) {
+    if (b.nodeType === 3) { const t = guardLine(mdEsc(b.nodeValue).trim()); if (t) out.push(t); continue; }
+    if (b.nodeType !== 1) continue;
+    if (b.classList.contains('blk') && b.dataset.md !== undefined && !b.dataset.dirty) { out.push(b.dataset.md); continue; }
+    const t = d2mBlocks(b.cloneNode(true)).trim(); if (t) out.push(t);
+  }
+  return out.join('\n\n') + '\n';
+}
+
+/* Studio UI */
+(function buildStudio() {
+  const el = document.createElement('div'); el.id = 'studio'; el.hidden = true;
+  const tb = (c, label, title) => '<button data-c="' + c + '" title="' + title + '">' + label + '</button>';
+  el.innerHTML =
+    '<div class="st-top"><button id="stBack" class="st-plain">← Back</button><div class="st-brand"><b>Studio</b><span>Edit visually — saved as Markdown</span></div>' +
+    '<div class="st-tools">' + tb('bold', '<b>B</b>', 'Bold') + tb('italic', '<i>I</i>', 'Italic') + tb('strike', '<s>S</s>', 'Strikethrough') + tb('code', '&lt;/&gt;', 'Inline code') + '<i class="sep"></i>' +
+    tb('h1', 'H1', 'Title') + tb('h2', 'H2', 'Heading') + tb('h3', 'H3', 'Subheading') + tb('p', '¶', 'Paragraph') + '<i class="sep"></i>' +
+    tb('ul', '•', 'Bulleted list') + tb('ol', '1.', 'Numbered list') + tb('quote', '❝', 'Quote') + tb('link', '🔗', 'Link') + tb('clear', '⌫', 'Clear formatting') + '</div><div class="spacer"></div>' +
+    '<button id="stUndo" title="Undo (Ctrl/⌘ Z)">↶</button><button id="stRedo" title="Redo">↷</button><button id="stApply" class="primary" title="Ctrl/⌘ Enter">Apply to document</button></div>' +
+    '<div class="st-body"><aside id="stRail"><div class="st-tabs"><button data-p="blocks" class="on">Blocks</button><button data-p="colors">Colors</button><button data-p="images">Images</button></div>' +
+    '<div class="st-panel" data-p="blocks"><p class="hint">Drag a block onto the page.</p><div class="bgrid">' + Object.keys(BLOCK_HTML).map(k => '<div class="bchip" draggable="true" data-drag=\'{"k":"block","t":"' + k + '"}\'>' + BLOCK_LABEL[k] + '</div>').join('') + '</div></div>' +
+    '<div class="st-panel" data-p="colors" hidden><p class="hint">Select text, then click a color, or drag a color onto any block.</p><h5>Text</h5><div class="sgrid">' + TEXT_COLORS.map(c => '<button class="sw" draggable="true" style="background:' + c + '" title="Text ' + c + '" data-hex="' + c + '" data-mode="color" data-drag=\'{"k":"color","hex":"' + c + '","mode":"color"}\'></button>').join('') + '</div>' +
+    '<h5>Highlight</h5><div class="sgrid">' + HILITES.map(c => '<button class="sw" draggable="true" style="background:' + c + '" title="Highlight ' + c + '" data-hex="' + c + '" data-mode="bg" data-drag=\'{"k":"color","hex":"' + c + '","mode":"bg"}\'></button>').join('') + '</div>' +
+    '<h5>Custom</h5><div class="cust"><input type="color" id="stCustom" value="#e11d48"><button id="stCustomText">Text</button><button id="stCustomBg">Highlight</button></div><button id="stClearColor" class="wide">Remove color</button></div>' +
+    '<div class="st-panel" data-p="images" hidden><div id="stZone" class="zone">Drop images here<small>PNG · JPEG · GIF · WebP</small></div><button id="stAddImg" class="wide">Add image…</button><div id="stTray" class="tray"></div></div></aside>' +
+    '<div id="stPageWrap"><div id="stPage"><div id="stCanvas" contenteditable="true" spellcheck="true" aria-label="Page"></div><div id="stDrop" hidden></div></div></div></div>';
+  document.body.appendChild(el);
+})();
+const stCanvas = () => $('#stCanvas');
+function stSnap() {
+  const h = stCanvas().innerHTML; if (ST.hist[ST.i] === h) return;
+  ST.hist.length = ST.i + 1; ST.hist.push(h); ST.i++; if (ST.hist.length > 80) { ST.hist.shift(); ST.i--; }
+}
+function stRestore(i) { stSnap(); if (i < 0 || i >= ST.hist.length) return; ST.i = i; stCanvas().innerHTML = ST.hist[i]; ST.dirty = true; renderTray(); }
+const studioUndo = () => stRestore(ST.i - 1), studioRedo = () => stRestore(ST.i + 1);
+function renderTray() {
+  const imgs = (docs[curId] && docs[curId].images) || {}, ids = Object.keys(imgs);
+  $('#stTray').innerHTML = ids.length ? ids.map(id => '<img draggable="true" src="' + imgs[id] + '" alt="" data-drag=\'{"k":"image","id":"' + id + '"}\'>').join('') : '<p class="hint">Images you add appear here so you can reuse them.</p>';
+}
+function openStudio() {
+  flush(); if (document.fullscreenElement === null) { /* keep window mode */ }
+  const root = stCanvas(), blocks = splitBlocks(ed.value);
+  root.innerHTML = blocks.map(blockHtml).join('') || '<div class="blk"><p><br></p></div>';
+  renderTray(); ST.dirty = false; ST.hist = [root.innerHTML]; ST.i = 0;
+  if (ST.mo) ST.mo.disconnect();
+  ST.mo = new MutationObserver(ms => {
+    ST.dirty = true;
+    for (const m of ms) { let n = m.target; while (n && n.parentNode !== root) n = n.parentNode; if (n && n.nodeType === 1 && n !== root) n.dataset.dirty = '1'; }
+  });
+  ST.mo.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style', 'src', 'alt', 'checked', 'href'] });
+  $('#studio').hidden = false; root.focus();
+}
+function closeStudio(force) {
+  if (!force && ST.dirty && !confirm('Discard your changes in Studio?')) return;
+  if (ST.mo) ST.mo.disconnect();
+  $('#studio').hidden = true; ed.focus();
+}
+function applyStudio() {
+  if (ST.mo) ST.mo.takeRecords();
+  const md = studioMarkdown();
+  if (ST.dirty && md.trim() !== ed.value.trim()) { ed.focus(); ed.setSelectionRange(0, ed.value.length); insertText(md); toast('Studio changes applied'); }
+  closeStudio(true);
+}
+const stBlockAt = n => { while (n && n !== stCanvas()) { if (n.parentNode === stCanvas()) return n; n = n.parentNode; } return null; };
+function stRef(y) { for (const b of stCanvas().querySelectorAll(':scope > .blk')) { const r = b.getBoundingClientRect(); if (y < r.top + r.height / 2) return b; } return null; }
+function stPlace(node, ref) { const root = stCanvas(); if (ref) root.insertBefore(node, ref); else root.appendChild(node); }
+function stInsertHtml(html, ref) {
+  stSnap(); const d = document.createElement('div'); d.className = 'blk'; d.innerHTML = GRIP + html; stPlace(d, ref);
+  const t = d.querySelector('p,h1,h2,li,pre'); if (t) { const r = document.createRange(); r.selectNodeContents(t); getSelection().removeAllRanges(); getSelection().addRange(r); }
+  stSnap(); return d;
+}
+function stInsertImage(id, alt, ref) { const data = docs[curId].images[id]; return stInsertHtml('<p><img data-img-id="' + id + '" src="' + data + '" alt="' + attr(alt || '') + '"></p>', ref); }
+function stApplyColor(hex, mode, block) {
+  const root = stCanvas(), sel = getSelection(); let range = sel.rangeCount ? sel.getRangeAt(0) : null;
+  if (!(range && !range.collapsed && root.contains(range.commonAncestorContainer))) range = ST.range && !ST.range.collapsed && root.contains(ST.range.commonAncestorContainer) ? ST.range : null;
+  if (range && block && !block.contains(range.commonAncestorContainer)) range = null;
+  if (!range) { if (!block) return toast('Select some text first, or drop a color onto a block'); range = document.createRange(); range.selectNodeContents(block); }
+  stSnap();
+  const tag = mode === 'bg' ? 'mark' : 'span', prop = mode === 'bg' ? 'background' : 'color', nodes = [];
+  const rootNode = range.commonAncestorContainer.nodeType === 3 ? range.commonAncestorContainer.parentNode : range.commonAncestorContainer;
+  const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (range.intersectsNode(n) && n.nodeValue.trim() && !n.parentNode.closest('.grip,.rawtxt')) nodes.push(n);
+  for (const n of nodes) {
+    const s = n === range.startContainer ? range.startOffset : 0, e = n === range.endContainer ? range.endOffset : n.nodeValue.length;
+    if (s >= e) continue;
+    const p = n.parentNode;
+    if (s === 0 && e === n.nodeValue.length && p.tagName.toLowerCase() === tag && p.childNodes.length === 1) { p.style[prop] = hex; continue; }
+    const r = document.createRange(); r.setStart(n, s); r.setEnd(n, e);
+    const el = document.createElement(tag); el.style[prop] = hex; r.surroundContents(el);
+  }
+  stSnap();
+}
+function stClearColor(block) {
+  const root = stCanvas(), sel = getSelection(); let range = sel.rangeCount ? sel.getRangeAt(0) : null;
+  if (!range || !root.contains(range.commonAncestorContainer)) range = ST.range;
+  if (!range || range.collapsed) { if (!block) return toast('Select text first'); range = document.createRange(); range.selectNodeContents(block); }
+  stSnap();
+  for (const el of [...root.querySelectorAll('span[style],mark')]) {
+    if (!range.intersectsNode(el)) continue;
+    const f = document.createDocumentFragment(); while (el.firstChild) f.appendChild(el.firstChild); el.replaceWith(f);
+  }
+  stSnap();
+}
+function stCmd(c) {
+  const root = stCanvas(); root.focus(); stSnap();
+  const x = (cmd, v) => document.execCommand(cmd, false, v);
+  if (c === 'bold') x('bold'); else if (c === 'italic') x('italic'); else if (c === 'strike') x('strikeThrough');
+  else if (c === 'ul') x('insertUnorderedList'); else if (c === 'ol') x('insertOrderedList');
+  else if (/^h[1-3]$/.test(c)) x('formatBlock', '<' + c + '>'); else if (c === 'p') x('formatBlock', '<p>'); else if (c === 'quote') x('formatBlock', '<blockquote>');
+  else if (c === 'link') { const u = prompt('Link address (https://…)'); if (u && /^(https?:|mailto:)/i.test(u.trim())) x('createLink', u.trim()); else if (u) toast('Links must start with http(s):// or mailto:'); }
+  else if (c === 'code') { const s = getSelection().toString(); if (s) x('insertHTML', '<code>' + esc(s) + '</code>'); }
+  else if (c === 'clear') { x('removeFormat'); stClearColor(null); }
+  stSnap();
+}
+function stMove(block, ref) { if (!block || block === ref || block.nextSibling === ref) return; stSnap(); stPlace(block, ref); stSnap(); ST.dirty = true; }
+function stDropIndicator(ref) {
+  const ind = $('#stDrop'), root = stCanvas(); ind.hidden = false;
+  ind.style.top = (ref ? ref.offsetTop : root.offsetTop + root.offsetHeight) + 'px';
+}
+function stDragEnd() { $('#stDrop').hidden = true; stCanvas().querySelectorAll('.dropblk').forEach(b => b.classList.remove('dropblk')); ST.drag = null; }
+
+(function wireStudio() {
+  const el = $('#studio'), root = stCanvas();
+  el.addEventListener('keydown', e => {
+    e.stopPropagation(); const m = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+    if (e.key === 'Escape') { e.preventDefault(); closeStudio(); }
+    else if (m && e.key === 'Enter') { e.preventDefault(); applyStudio(); }
+    else if (m && k === 'z' && !e.shiftKey) { e.preventDefault(); studioUndo(); }
+    else if (m && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); studioRedo(); }
+  });
+  $('#stBack').onclick = () => closeStudio(); $('#stApply').onclick = applyStudio; $('#stUndo').onclick = studioUndo; $('#stRedo').onclick = studioRedo;
+  el.querySelector('.st-tools').addEventListener('mousedown', e => e.preventDefault());
+  el.querySelector('.st-tools').addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) stCmd(b.dataset.c); });
+  el.querySelector('.st-tabs').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; el.querySelectorAll('.st-tabs button').forEach(x => x.classList.toggle('on', x === b)); el.querySelectorAll('.st-panel').forEach(p => p.hidden = p.dataset.p !== b.dataset.p); });
+  document.addEventListener('selectionchange', () => { const s = getSelection(); if (s.rangeCount && root.contains(s.getRangeAt(0).commonAncestorContainer)) ST.range = s.getRangeAt(0).cloneRange(); });
+  $('#stRail').addEventListener('click', e => {
+    const sw = e.target.closest('.sw'); if (sw) return stApplyColor(sw.dataset.hex, sw.dataset.mode, null);
+    const t = e.target.closest('.tray img'); if (t) return stInsertImage(JSON.parse(t.dataset.drag).id, '', stRef(1e9));
+  });
+  $('#stCustomText').onclick = () => stApplyColor($('#stCustom').value, 'color', null);
+  $('#stCustomBg').onclick = () => stApplyColor($('#stCustom').value, 'bg', null);
+  $('#stClearColor').onclick = () => stClearColor(null);
+  $('#stAddImg').onclick = () => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/png,image/jpeg,image/gif,image/webp'; i.multiple = true; i.onchange = async () => { for (const f of i.files) { const id = await addImage(f); if (id) stInsertImage(id, imgAlt(f.name), null); } renderTray(); }; i.click(); };
+  $('#stRail').addEventListener('dragstart', e => { const d = e.target.closest('[data-drag]'); if (!d) return; ST.drag = JSON.parse(d.dataset.drag); e.dataTransfer.setData('application/x-wren', d.dataset.drag); e.dataTransfer.effectAllowed = 'copy'; });
+  root.addEventListener('dragstart', e => { const g = e.target.closest('.grip'); if (!g) return; ST.drag = { k: 'move', b: g.closest('.blk') }; e.dataTransfer.setData('application/x-wren', '{"k":"move"}'); e.dataTransfer.effectAllowed = 'move'; });
+  el.addEventListener('dragend', stDragEnd);
+  root.addEventListener('dragover', e => {
+    const isFile = [...(e.dataTransfer.types || [])].includes('Files'); if (!isFile && !ST.drag) return;
+    e.preventDefault(); e.stopPropagation();
+    if (ST.drag && ST.drag.k === 'color') { root.querySelectorAll('.dropblk').forEach(b => b.classList.remove('dropblk')); const b = stBlockAt(e.target); if (b) b.classList.add('dropblk'); $('#stDrop').hidden = true; }
+    else stDropIndicator(stRef(e.clientY));
+  });
+  root.addEventListener('dragleave', e => { if (!root.contains(e.relatedTarget)) stDragEnd(); });
+  root.addEventListener('drop', async e => {
+    e.preventDefault(); e.stopPropagation();
+    const ref = stRef(e.clientY), blk = stBlockAt(e.target), files = [...(e.dataTransfer.files || [])], d = ST.drag; stDragEnd();
+    if (files.length) { for (const f of files) { const id = await addImage(f); if (id) stInsertImage(id, imgAlt(f.name), ref); } renderTray(); return; }
+    if (!d) return;
+    if (d.k === 'block') stInsertHtml(BLOCK_HTML[d.t], ref);
+    else if (d.k === 'image') stInsertImage(d.id, '', ref);
+    else if (d.k === 'color') stApplyColor(d.hex, d.mode, blk);
+    else if (d.k === 'move') stMove(d.b, ref);
+  });
+  let t; root.addEventListener('input', () => { clearTimeout(t); t = setTimeout(stSnap, 500); });
+  root.addEventListener('dblclick', e => { if (e.target.tagName === 'IMG') { const a = prompt('Describe this image (alt text)', e.target.alt || ''); if (a !== null) { stSnap(); e.target.alt = a; stSnap(); } } });
+  root.addEventListener('paste', e => {
+    const f = [...(e.clipboardData && e.clipboardData.files || [])].filter(x => x.type.startsWith('image/')); if (f.length) { e.preventDefault(); f.forEach(async x => { const id = await addImage(x); if (id) stInsertImage(id, '', null); }); return; }
+    e.preventDefault(); document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+  });
+  $('#stZone').addEventListener('dragover', e => e.preventDefault());
+  $('#stZone').addEventListener('drop', async e => { e.preventDefault(); e.stopPropagation(); for (const f of e.dataTransfer.files) { const id = await addImage(f); if (id) stInsertImage(id, imgAlt(f.name), null); } renderTray(); });
+})();
+
+const NEW_COMMANDS = [
+  ['Studio: visual editor', mod_() + ' ⇧ E', openStudio],
+  ['New from template…', '', openTemplates],
+  ['Insert image…', '', pickImage],
+  ['Toggle comment on line(s)', mod_() + ' /', toggleComment],
+  ...['standard', 'manuscript', 'magazine', 'compact'].map(n => ['Preview & export style: ' + n[0].toUpperCase() + n.slice(1), '', () => { S.pvTheme = n; saveSettings(); applySettings(); syncSettingsForm(); }])
+];
+
+COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS);
 let palSel = 0, palItems = [], palMode = 'cmd';
 function openPalette(mode, prefill) {
   palMode = mode === 'doc' ? 'doc' : 'cmd'; palSel = 0;
@@ -1514,7 +1937,9 @@ ed.addEventListener('paste', e => {
     e.preventDefault(); const a = ed.selectionStart, b = ed.selectionEnd, s = ed.value.slice(a, b);
     replaceRange(a, b, '[' + s + '](' + text.trim() + ')'); return;
   }
-  void items; void html;
+  const imgs = [...items].filter(it => it.kind === 'file' && it.type.startsWith('image/')).map(it => it.getAsFile()).filter(Boolean);
+  if (imgs.length) { e.preventDefault(); imgs.forEach(insertImageFile); return; }
+  void html;
 });
 ['mousemove', 'mousedown', 'touchstart'].forEach(ev => document.addEventListener(ev, () => document.body.classList.remove('typing'), { passive: true }));
 ed.addEventListener('blur', () => { flush(); hidePop(); });
@@ -1531,6 +1956,8 @@ $('#preview').addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   const m = e.metaKey || e.ctrlKey; const k = e.key.toLowerCase();
   if (e.key === 'Escape') {
+    if (!$('#studio').hidden) return;
+    if (!$('#tplModal')?.hidden && $('#tplModal')) { $('#tplModal').hidden = true; ed.focus(); return; }
     if (!$('#palette').hidden) return closePalette();
     if (!$('#settings').hidden) return closeSettings();
     if (!$('#exportMenu').hidden) { $('#exportMenu').hidden = true; return; }
@@ -1548,6 +1975,8 @@ document.addEventListener('keydown', e => {
   else if (k === 'p' && e.shiftKey) run(() => togglePreview());
   else if (k === 'p') run(() => openPalette('doc'));
   else if (k === 'l' && e.shiftKey) run(lookupSelection);
+  else if (k === 'e' && e.shiftKey) run(openStudio);
+  else if (k === '/') run(toggleComment);
   else if (k === 'enter' && e.shiftKey) run(toggleFullscreen);
   else if (k === 'f' && e.shiftKey) run(cycleFocus);
   else if (k === 'f') run(() => toggleFind(true));
@@ -1587,15 +2016,16 @@ let dragN = 0;
 addEventListener('dragenter', e => { if (e.dataTransfer?.types?.includes('Files')) { dragN++; document.body.classList.add('drop'); } });
 addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; document.body.classList.remove('drop'); } });
 addEventListener('dragover', e => e.preventDefault());
-addEventListener('drop', e => { e.preventDefault(); dragN = 0; document.body.classList.remove('drop'); if (e.dataTransfer?.files?.length) importFiles([...e.dataTransfer.files]); });
+addEventListener('drop', e => { e.preventDefault(); dragN = 0; if (!$('#studio').hidden) return; document.body.classList.remove('drop'); if (e.dataTransfer?.files?.length) handleFiles([...e.dataTransfer.files]); });
 
 // desktop wrapper hooks (Electron menu)
-window.wren = { newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
+window.wren = { openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
 
 /* ───────── boot ───────── */
 document.body.classList.toggle('nosb', !S.sidebar || innerWidth <= 820);
 $('#preview').hidden = !S.preview;
 $('#previewBtn').style.background = S.preview ? 'var(--panel)' : '';
+for (const d of Object.values(docs)) if (d.images) { let ch = false; for (const k in d.images) if (!d.text.includes('img:' + k) && !(d.history || []).some(h => h.text.includes('img:' + k))) { delete d.images[k]; ch = true; } if (ch) store.set('docs', docs); }
 ed.value = docs[curId].text;
 applySettings(); renderLibrary(); updatePreview();
 if (!ed.value || ed.value === WELCOME) { /* show welcome from the top */ }
