@@ -17,7 +17,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const defaults = {
   theme: 'auto', accent: '#10a5c8', font: 'mono', size: 18, lh: 1.7, width: 680,
   focus: 'off', typewriter: true, spell: false, dailyGoal: 500, sidebar: true, preview: false,
-  smart: true, autopair: true, fillers: false, pvTheme: 'standard',
+  smart: true, autopair: true, fillers: false, style: false, pvTheme: 'standard',
   pos: { noun: false, verb: false, adj: false, adv: false, conj: false }
 };
 const S = Object.assign({}, defaults, store.get('settings', {}));
@@ -164,7 +164,7 @@ function posOf(w) {
   return null;
 }
 const FILL = W('very really just quite actually basically literally simply somewhat rather perhaps maybe probably honestly definitely totally extremely fairly clearly obviously certainly seriously essentially virtually');
-function posWrap(text) {
+let posWrap = function (text) {
   const anyPos = S.pos.noun || S.pos.verb || S.pos.adj || S.pos.adv || S.pos.conj;
   if (!anyPos && !S.fillers) return esc(text);
   let out = '', last = 0, m;
@@ -176,10 +176,10 @@ function posWrap(text) {
     last = m.index + m[0].length;
   }
   return out + esc(text.slice(last));
-}
+};
 
 /* ───────── markdown highlighting (editor backdrop) ───────── */
-const INL = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_|`[^`\n]+`|!?\[[^\]\n]*\]\([^)\n]*\)|\[\[[^\]\n]+\]\]|~~[^~\n]+~~|<\/?(?:span|mark)(?: style="[^"\n]*")?>|https?:\/\/[^\s)]+)/g;
+const INL = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_|`[^`\n]+`|!?\[[^\]\n]*\]\([^)\n]*\)|\[\[[^\]\n]+\]\]|~~[^~\n]+~~|<\/?(?:span|mark)(?: style="[^"\n]*")?>|(?<![\w&#\/="'])#[A-Za-z\u00C0-\u024F][\w\/-]*|https?:\/\/[^\s)]+)/g;
 function inl(text) {
   let out = '', last = 0, m;
   INL.lastIndex = 0;
@@ -190,6 +190,7 @@ function inl(text) {
     else if (/^[*_]/.test(t)) out += '<span class="mk">' + t[0] + '</span><span class="i">' + posWrap(t.slice(1, -1)) + '</span><span class="mk">' + t[0] + '</span>';
     else if (t[0] === '`') out += '<span class="code"><span class="mk">`</span>' + esc(t.slice(1, -1)) + '<span class="mk">`</span></span>';
     else if (t.startsWith('~~')) out += '<span class="mk">~~</span><span class="s">' + posWrap(t.slice(2, -2)) + '</span><span class="mk">~~</span>';
+    else if (t[0] === '#') out += '<span class="tg">' + esc(t) + '</span>';
     else if (t[0] === '<') out += '<span class="mk">' + esc(t) + '</span>';
     else if (t.startsWith('[[')) out += '<span class="wk' + (hasDoc(t.slice(2, -2).split('|')[0]) ? '' : ' miss') + '">' + esc(t) + '</span>';
     else out += '<span class="lk">' + esc(t) + '</span>';
@@ -351,8 +352,9 @@ function renderLibrary() {
     return;
   }
   const q = $('#search').value.trim().toLowerCase();
-  const list = liveDocs().filter(d => !q || textOf(d).toLowerCase().includes(q)).sort((a, b) => (!!b.pinned - !!a.pinned) || b.updated - a.updated);
-  if (!list.length) el.innerHTML = '<div class="empty">No documents found.</div>';
+  const list = liveDocs().filter(d => matchDoc(d, q)).sort((a, b) => (!!b.pinned - !!a.pinned) || b.updated - a.updated);
+  el.appendChild(libBar(q));
+  if (!list.length) el.insertAdjacentHTML('beforeend', '<div class="empty">No documents found.</div>');
   for (const d of list) {
     const txt = textOf(d);
     const div = document.createElement('div');
@@ -377,7 +379,7 @@ function renderLibrary() {
   }
 }
 function renderOutline() {
-  const el = $('#outlineList'); el.innerHTML = '';
+  const el = $('#outlineList'); el.innerHTML = '<button class="wide" id="cardsBtn">▦ Rearrange sections</button>';
   const t = ed.value; let fence = false, idx = 0, found = 0;
   for (const l of t.split('\n')) {
     if (FENCE.test(l)) fence = !fence;
@@ -393,7 +395,7 @@ function renderOutline() {
     }
     idx += l.length + 1;
   }
-  if (!found) el.innerHTML = '<div class="empty">Add headings with # to build an outline.</div>';
+  if (!found) el.insertAdjacentHTML('beforeend', '<div class="empty">Add headings with # to build an outline.</div>');
 }
 function renderHistory() {
   const el = $('#historyList'); el.innerHTML = '';
@@ -541,6 +543,7 @@ function inlineMd(s) {
   s = s.replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\*)/g, '$1<em>$2</em>').replace(/(^|[^_\w])_([^_\s][^_]*)_(?!\w)/g, '$1<em>$2</em>');
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   s = s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<code>' + esc(codes[i]) + '</code>');
+  s = s.replace(/(^|[\s(>])#([A-Za-z\u00C0-\u024F][\w\/-]*)/g, (_, p, t) => p + '<a class="tag" href="#tag" data-tag="' + t.toLowerCase() + '">#' + t + '</a>');
   s = s.replace(/\u0001(\d+)\u0001/g, (_, i) => wikis[i]);
   s = s.replace(/\u0003(\d+)\u0003/g, (_, i) => tags[i]);
   s = s.replace(/\u0002(\d+)\u0002/g, (_, c) => esc(String.fromCharCode(+c)));
@@ -620,7 +623,7 @@ function togglePreview(force) {
 
 /* ───────── export ───────── */
 const EXPORT_CSS = 'body{font:17px/1.7 Georgia,"Times New Roman",serif;max-width:720px;margin:48px auto;padding:0 24px;color:#222}h1,h2,h3,h4{font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.25;margin:1.6em 0 .5em}a{color:#0b7fa0}code{font-family:Menlo,Consolas,monospace;font-size:.88em;background:#f1f1ee;padding:.1em .35em;border-radius:4px}pre{background:#f1f1ee;padding:14px 16px;border-radius:8px;overflow:auto}pre code{background:none;padding:0}blockquote{margin:1em 0;padding-left:1em;border-left:3px solid #10a5c8;color:#555}table{border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 12px}img{max-width:100%}hr{border:0;border-top:1px solid #ddd}li.task{list-style:none;margin-left:-1.2em}';
-const unwiki = h => h.replace(/<a class="wiki[^"]*"[^>]*>([\s\S]*?)<\/a>/g, '<span>$1</span>');
+const unwiki = h => h.replace(/<a class="tag"[^>]*>([\s\S]*?)<\/a>/g, '<span class="tag">$1</span>').replace(/<a class="wiki[^"]*"[^>]*>([\s\S]*?)<\/a>/g, '<span>$1</span>');
 const exportBody = () => unwiki(renderMarkdown(ed.value));
 const fullHtml = () => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(titleOf({ text: ed.value })) + '</title><style>' + EXPORT_CSS + EMBED_CSS + (THEME_CSS[S.pvTheme] || '') + '</style></head><body>' + exportBody() + '</body></html>';
 const fileName = ext => (titleOf({ text: ed.value }).replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 60) || 'Untitled') + '.' + ext;
@@ -792,6 +795,7 @@ const SLASH = [
   { label: 'Link', k: 'url href', desc: '[text](url)', snip: '[$0](url)' },
   { label: 'Image', k: 'picture photo', desc: '![alt](url)', snip: '![$0](url)' },
   { label: 'Wiki link', k: 'note backlink', desc: '[[Note]]', snip: '[[$0]]' },
+  { label: 'Tag', k: 'hashtag label', desc: '#tag', snip: '#$0' },
   { label: 'Embed note', k: 'transclude include', desc: '![[Note]]', snip: '![[$0]]' },
   { label: 'Comment', k: 'note hidden private', desc: '// …', snip: '// $0' },
   { label: 'Color text', k: 'colour red blue', desc: '<span>', snip: '<span style="color:#e11d48">$0</span>' },
@@ -945,7 +949,7 @@ function renderInsights() {
   if (r.longSents.length) h += '<h4>Long sentences <span>' + r.longSents.length + '</span></h4>' + r.longSents.slice(0, 8).map(x => '<div class="item" data-jump="' + attr(x.slice(0, 28)) + '"><div class="s">' + esc(x.slice(0, 110)) + '…</div></div>').join('');
   if (r.fillers.length) h += '<h4>Weak words</h4><div class="chips">' + r.fillers.slice(0, 12).map(x => '<span class="chip">' + esc(x[0]) + ' ×' + x[1] + '</span>').join('') + '</div>';
   if (r.repeated.length) h += '<h4>Repeated words</h4><div class="chips">' + r.repeated.map(x => '<span class="chip">' + esc(x[0]) + ' ×' + x[1] + '</span>').join('') + '</div>';
-  el.innerHTML = h;
+  el.innerHTML = h + styleHtml();
 }
 $('#insightsList').addEventListener('change', e => { if (e.target.id === 'fillToggle') { S.fillers = e.target.checked; saveSettings(); applySettings(); syncSettingsForm(); } });
 $('#insightsList').addEventListener('click', e => {
@@ -1097,7 +1101,7 @@ function readAloud() {
 /* ───────── backup, restore, zip ───────── */
 function backupAll() {
   flush();
-  download('Wren backup ' + today() + '.json', JSON.stringify({ app: 'wren', version: 2, exported: new Date().toISOString(), docs: Object.values(docs), stats }, null, 1), 'application/json');
+  download('Wren backup ' + today() + '.json', JSON.stringify({ app: 'wren', version: 2, exported: new Date().toISOString(), docs: Object.values(docs), stats, folders }, null, 1), 'application/json');
   toast('Backup downloaded');
 }
 async function restoreBackup(file) {
@@ -1114,6 +1118,8 @@ async function restoreBackup(file) {
       if (d.trashed) docs[id].trashed = d.trashed;
       if (ex) copies++; else added++;
     }
+    if (Array.isArray(data.folders)) for (const f of data.folders) if (f && f.name && f.q && !folders.some(x => x.q === f.q)) folders.push({ name: String(f.name).slice(0, 30), q: String(f.q) });
+    store.set('folders', folders);
     if (data.stats) for (const k in data.stats) stats[k] = Math.max(stats[k] || 0, data.stats[k] | 0);
     store.set('stats', stats); persist(); renderLibrary();
     toast('Restored ' + added + ' new' + (copies ? ' and ' + copies + ' changed (kept as copies)' : '') + ' documents');
@@ -1867,7 +1873,180 @@ const NEW_COMMANDS = [
   ...['standard', 'manuscript', 'magazine', 'compact'].map(n => ['Preview & export style: ' + n[0].toUpperCase() + n.slice(1), '', () => { S.pvTheme = n; saveSettings(); applySettings(); syncSettingsForm(); }])
 ];
 
-COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS);
+/* ───────── style check ───────── */
+const STYLE_WORDY = { 'in order to': 'to', 'due to the fact that': 'because', 'at this point in time': 'now', 'a number of': 'several', 'in the event that': 'if', 'for the purpose of': 'for', 'with regard to': 'about', 'is able to': 'can', 'has the ability to': 'can', 'in spite of the fact that': 'although', 'the vast majority of': 'most', 'each and every': 'every', 'at the present time': 'now', 'in the near future': 'soon', 'on a daily basis': 'daily', 'it is important to note that': '', 'needless to say': '' };
+const STYLE_CLICHE = ['at the end of the day', 'think outside the box', 'low-hanging fruit', 'game changer', 'paradigm shift', 'circle back', 'move the needle', 'win-win', 'touch base', 'take it to the next level', 'best of both worlds', 'it goes without saying', 'last but not least', 'only time will tell', 'read between the lines', 'the elephant in the room', 'back to square one', 'a perfect storm', 'at the drop of a hat', 'tip of the iceberg', 'without further ado', 'in today’s world', 'in today\'s world'];
+const STYLE_WEAK = ['very', 'really', 'just', 'quite', 'actually', 'basically', 'literally', 'simply', 'somewhat', 'rather', 'perhaps', 'maybe', 'probably', 'honestly', 'definitely', 'totally', 'extremely', 'fairly', 'obviously', 'certainly', 'essentially', 'virtually', 'i think', 'i guess', 'i believe', 'kind of', 'sort of'];
+const NOT_PP = new Set('open often even seven ten then when green children kitchen golden garden screen token women men listen hidden sudden'.split(' '));
+const reEsc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const STYLE_RE = new RegExp('\\b([A-Za-z]+)\\s+\\1\\b|\\b(?:' + [...Object.keys(STYLE_WORDY), ...STYLE_CLICHE].sort((a, b) => b.length - a.length).map(reEsc).join('|') + '|' + STYLE_WEAK.join('|') + '|(?:is|are|was|were|be|been|being)\\s+(?:\\w+ly\\s+)?\\w{2,}(?:ed|en))\\b', 'gi');
+const TYPE_LABEL = { repeat: 'Repeated', wordy: 'Wordy', cliche: 'Cliché', weak: 'Weak', passive: 'Passive' };
+function styleClass(m) {
+  const low = m[0].toLowerCase().replace(/\s+/g, ' ');
+  if (m[1] !== undefined) return low.split(' ')[0] === low.split(' ')[1] ? { t: 'repeat', msg: 'Repeated word', fix: m[1] } : null;
+  if (low in STYLE_WORDY) { let f = STYLE_WORDY[low]; if (f && /^[A-Z]/.test(m[0])) f = f[0].toUpperCase() + f.slice(1); return { t: 'wordy', msg: f ? 'Wordy — try “' + f + '”' : 'Wordy — can usually be cut', fix: f }; }
+  if (STYLE_CLICHE.includes(low)) return { t: 'cliche', msg: 'Cliché — say it in your own words', fix: null };
+  if (STYLE_WEAK.includes(low)) return { t: 'weak', msg: 'Weak word — often better cut', fix: '' };
+  const w = low.split(' ').pop(); if (NOT_PP.has(w) || /^(?:be|is|are|was|were|been|being)$/.test(w)) return null;
+  return { t: 'passive', msg: 'Possible passive voice', fix: null };
+}
+function styleScan(text) {
+  const skip = []; let fence = false, off = 0;
+  for (const l of text.split('\n')) { if (FENCE.test(l)) { fence = !fence; skip.push([off, off + l.length]); } else if (fence || /^\s*\/\//.test(l)) skip.push([off, off + l.length]); off += l.length + 1; }
+  const out = []; let m; STYLE_RE.lastIndex = 0;
+  while ((m = STYLE_RE.exec(text))) {
+    const i = m.index; if (skip.some(([a, b]) => i >= a && i < b)) continue;
+    if (/[`\]]/.test(text[i - 1] || '') || /\(https?:[^)]*$/.test(text.slice(Math.max(0, i - 80), i))) continue;
+    const c = styleClass(m); if (c) out.push({ i, len: m[0].length, text: m[0], ...c });
+  }
+  return out;
+}
+const posWrap0 = posWrap;
+posWrap = function (text) {
+  if (!S.style) return posWrap0(text);
+  let out = '', last = 0, m; STYLE_RE.lastIndex = 0;
+  while ((m = STYLE_RE.exec(text))) {
+    const c = styleClass(m); if (!c) continue;
+    out += posWrap0(text.slice(last, m.index)) + '<span class="sty sty-' + c.t + '" title="' + attr(c.msg) + '">' + esc(m[0]) + '</span>'; last = m.index + m[0].length;
+  }
+  return out + posWrap0(text.slice(last));
+};
+function fixEdit(t, is) {
+  let a = is.i, b = is.i + is.len, rep = is.fix;
+  if (rep === '') { if (t[b] === ' ') b++; else if (t[a - 1] === ' ') a--; if (/^[A-Z]/.test(is.text) && t[b] && /[a-z]/.test(t[b])) { rep = t[b].toUpperCase(); b++; } }
+  return [a, b, rep];
+}
+function applyStyleFix(is) {
+  const t = ed.value; if (t.slice(is.i, is.i + is.len) !== is.text) return toast('Text changed — refresh');
+  const [a, b, rep] = fixEdit(t, is); replaceRange(a, b, rep, a + rep.length); refreshPanel();
+}
+function fixAllStyle() {
+  const t = ed.value, list = styleScan(t).filter(x => x.fix !== null && x.t !== 'weak');
+  if (!list.length) return toast('Nothing to fix automatically');
+  let out = t; for (const is of list.reverse()) { const [a, b, rep] = fixEdit(out, is); out = out.slice(0, a) + rep + out.slice(b); }
+  const p = ed.selectionStart; ed.focus(); ed.setSelectionRange(0, t.length); insertText(out); ed.setSelectionRange(Math.min(p, out.length), Math.min(p, out.length)); toast('Fixed ' + list.length + ' issues');
+}
+let styleList = [];
+function styleHtml() {
+  styleList = styleScan(ed.value);
+  let h = '<h4>Style check <span>' + styleList.length + '</span></h4><label class="chk"><input type="checkbox" id="styleToggle"' + (S.style ? ' checked' : '') + '> Underline issues in the editor</label>';
+  if (!styleList.length) return h + '<div class="empty">No style issues found. Nice.</div>';
+  if (styleList.some(x => x.fix !== null && x.t !== 'weak')) h += '<button id="styleFixAll" class="wide">Apply safe fixes (wordy phrases, repeats)</button>';
+  return h + styleList.slice(0, 40).map((x, k) => '<div class="item sty-i" data-s="' + k + '"><div class="s"><span class="chip sty-' + x.t + '">' + TYPE_LABEL[x.t] + '</span> ' + esc(x.text) + (x.fix ? ' → <b>' + esc(x.fix) + '</b>' : '') + '</div>' + (x.fix !== null ? '<div class="acts"><button data-a="fix">Fix</button></div>' : '') + '</div>').join('') + (styleList.length > 40 ? '<div class="empty">+' + (styleList.length - 40) + ' more</div>' : '');
+}
+$('#insightsList').addEventListener('change', e => { if (e.target.id === 'styleToggle') { S.style = e.target.checked; saveSettings(); applySettings(); syncSettingsForm(); } });
+$('#insightsList').addEventListener('click', e => {
+  if (e.target.id === 'styleFixAll') return fixAllStyle();
+  const it = e.target.closest('[data-s]'); if (!it) return; const is = styleList[+it.dataset.s]; if (!is) return;
+  if (e.target.closest('[data-a=fix]')) return applyStyleFix(is);
+  ed.focus(); ed.setSelectionRange(is.i, is.i + is.len); ensureCaret(true); render();
+});
+
+/* ───────── tags + smart folders ───────── */
+const TAG_RE = /(?<![\w&#\/="'])#([A-Za-z\u00C0-\u024F][\w\/-]*)/g;
+function tagsOf(text) {
+  const t = text.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, ' ').replace(/`[^`\n]*`/g, ' ').replace(/<[^>\n]+>/g, ' ').replace(/\]\([^)\n]*\)/g, '] ').replace(/^\s*\/\/.*$/gm, ' ').replace(/^#{1,6}\s.*$/gm, l => l);
+  const set = new Set(); let m; TAG_RE.lastIndex = 0;
+  while ((m = TAG_RE.exec(t))) set.add(m[1].toLowerCase().replace(/[-\/]+$/, ''));
+  return set;
+}
+let folders = store.get('folders', []);
+function matchDoc(d, q) {
+  if (!q) return true;
+  const txt = textOf(d), low = txt.toLowerCase(), days = (Date.now() - d.updated) / 864e5; let tags = null;
+  for (const raw of q.match(/"[^"]+"|\S+/g) || []) {
+    const tk = raw.replace(/"/g, '').toLowerCase(); let m;
+    if (tk[0] === '#' && tk.length > 1) { tags = tags || tagsOf(txt); if (![...tags].some(x => x === tk.slice(1) || x.startsWith(tk.slice(1) + '/'))) return false; }
+    else if ((m = tk.match(/^(older|newer):(\d+)$/))) { if (m[1] === 'older' ? !(days > +m[2]) : !(days < +m[2])) return false; }
+    else if ((m = tk.match(/^words([<>])(\d+)$/))) { const n = countWords(txt); if (m[1] === '>' ? !(n > +m[2]) : !(n < +m[2])) return false; }
+    else if (tk === 'pinned') { if (!d.pinned) return false; }
+    else if (tk === 'has:image') { if (!/!\[[^\]]*\]\(/.test(txt)) return false; }
+    else if (tk === 'has:task') { if (!/^\s*[-*+]\s+\[ \]/m.test(txt)) return false; }
+    else if (tk === 'has:link') { if (!/\[\[|\]\(http/.test(txt)) return false; }
+    else if (!low.includes(tk)) return false;
+  }
+  return true;
+}
+function libBar(q) {
+  const counts = {}; for (const d of liveDocs()) for (const t of tagsOf(textOf(d))) counts[t] = (counts[t] || 0) + 1;
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 14), raw = $('#search').value.trim();
+  const bar = document.createElement('div'); bar.className = 'tagbar';
+  bar.innerHTML = folders.map((f, i) => '<span class="chip fold' + (f.q.toLowerCase() === q ? ' on' : '') + '" data-q="' + attr(f.q) + '" title="' + attr(f.q) + '">📁 ' + esc(f.name) + ' <i data-del="' + i + '" title="Delete folder">✕</i></span>').join('') +
+    top.map(([t, n]) => '<span class="chip tg' + (q === '#' + t ? ' on' : '') + '" data-q="#' + attr(t) + '">#' + esc(t) + ' <small>' + n + '</small></span>').join('') +
+    (raw && !folders.some(f => f.q === raw) ? '<span class="chip save" data-save="1">＋ Save as smart folder</span>' : '') + (raw ? '<span class="chip clr" data-clear="1">Clear</span>' : '');
+  if (!bar.innerHTML) bar.innerHTML = '<span class="hint">Add #tags to notes, or search with older:7, words&gt;500, has:image, pinned…</span>';
+  bar.onclick = e => {
+    const del = e.target.closest('[data-del]'); if (del) { e.stopPropagation(); folders.splice(+del.dataset.del, 1); store.set('folders', folders); return renderLibrary(); }
+    if (e.target.closest('[data-clear]')) { $('#search').value = ''; return renderLibrary(); }
+    if (e.target.closest('[data-save]')) { const n = prompt('Name this smart folder', raw.replace(/[#"]/g, '').slice(0, 24)); if (n && n.trim()) { folders.push({ name: n.trim().slice(0, 30), q: raw }); store.set('folders', folders); renderLibrary(); } return; }
+    const c = e.target.closest('[data-q]'); if (c) { $('#search').value = $('#search').value.trim() === c.dataset.q ? '' : c.dataset.q; renderLibrary(); }
+  };
+  return bar;
+}
+function filterTag(t) { toggleSidebar(true); setTab('lib'); $('#search').value = '#' + t; renderLibrary(); }
+const TAG_SNIP = '#$0';
+
+/* ───────── outline cards ───────── */
+function splitSections(t) {
+  let fence = false, off = 0; const heads = [];
+  for (const l of t.split('\n')) { if (FENCE.test(l)) fence = !fence; const m = !fence && l.match(/^(#{1,6})\s+(.*)$/); if (m) heads.push({ off, level: m[1].length, title: m[2].trim() }); off += l.length + 1; }
+  const cnt = {}; heads.forEach(h => cnt[h.level] = (cnt[h.level] || 0) + 1);
+  const lvl = Object.keys(cnt).map(Number).sort((a, b) => a - b).find(k => cnt[k] >= 2) || (heads.length ? Math.min(...heads.map(h => h.level)) : 0);
+  const sp = heads.filter(h => h.level === lvl); if (!sp.length) return { pre: t, secs: [] };
+  return { pre: t.slice(0, sp[0].off), secs: sp.map((h, i) => ({ title: h.title, level: h.level, text: t.slice(h.off, i + 1 < sp.length ? sp[i + 1].off : t.length) })) };
+}
+const CARDS = { pre: '', secs: [], drag: -1, dirty: false };
+function openCards() {
+  const sp = splitSections(ed.value);
+  if (!sp.secs.length) return toast('Add some headings first, then rearrange the sections here');
+  CARDS.pre = sp.pre; CARDS.secs = sp.secs; CARDS.dirty = false;
+  let el = $('#cards');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'cards'; el.className = 'overlay';
+    el.innerHTML = '<div class="card cards"><div class="set-head"><div><h2>Rearrange sections</h2><small>Drag cards (or use ◀ ▶) — then apply</small></div><div class="spacer"></div><button id="cdAdd">＋ Section</button><button id="cdApply" class="primary">Apply order</button><button id="cdClose" class="icon" aria-label="Close">✕</button></div><div id="cdGrid" class="cd-grid"></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('mousedown', e => { if (e.target === el) closeCards(); });
+    el.querySelector('#cdClose').onclick = () => closeCards(); el.querySelector('#cdApply').onclick = applyCards;
+    el.querySelector('#cdAdd').onclick = () => { CARDS.secs.push({ title: 'New section', level: CARDS.secs[0].level, text: '#'.repeat(CARDS.secs[0].level) + ' New section\n\n' }); CARDS.dirty = true; drawCards(); };
+    const g = el.querySelector('#cdGrid');
+    g.addEventListener('click', e => {
+      const c = e.target.closest('.cd'); if (!c) return; const i = +c.dataset.i, b = e.target.closest('[data-m]');
+      if (b) { moveCard(i, i + (b.dataset.m === 'l' ? -1 : 1)); return; }
+      if (e.target.closest('[data-x]')) { if (confirm('Remove this section from the document?')) { CARDS.secs.splice(i, 1); CARDS.dirty = true; drawCards(); } return; }
+    });
+    g.addEventListener('dragstart', e => { const c = e.target.closest('.cd'); if (!c) return; CARDS.drag = +c.dataset.i; e.dataTransfer.setData('text/plain', 'card'); e.dataTransfer.effectAllowed = 'move'; c.classList.add('lift'); });
+    g.addEventListener('dragend', () => { CARDS.drag = -1; g.querySelectorAll('.lift,.over').forEach(x => x.classList.remove('lift', 'over')); });
+    g.addEventListener('dragover', e => { if (CARDS.drag < 0) return; e.preventDefault(); const c = e.target.closest('.cd'); g.querySelectorAll('.over').forEach(x => x.classList.remove('over')); if (c) c.classList.add('over'); });
+    g.addEventListener('drop', e => { if (CARDS.drag < 0) return; e.preventDefault(); const c = e.target.closest('.cd'); if (c) moveCard(CARDS.drag, +c.dataset.i); CARDS.drag = -1; });
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); closeCards(); } });
+  }
+  el.hidden = false; drawCards(); el.querySelector('#cdApply').focus();
+}
+function moveCard(from, to) { const s = CARDS.secs; if (from === to || to < 0 || to >= s.length) return; s.splice(to, 0, s.splice(from, 1)[0]); CARDS.dirty = true; drawCards(); }
+function drawCards() {
+  $('#cdGrid').innerHTML = CARDS.secs.map((s, i) => {
+    const body = s.text.replace(/^#+[^\n]*\n?/, '').replace(/^#{1,6}\s.*$/gm, '').replace(/[*_`>#\[\]]/g, '').replace(/\s+/g, ' ').trim();
+    return '<div class="cd l' + s.level + '" draggable="true" data-i="' + i + '"><div class="cd-n">' + (i + 1) + '</div><b>' + esc(s.title.replace(/<[^>]+>/g, '')) + '</b><p>' + esc(body.slice(0, 130)) + '</p><div class="cd-f"><span>' + countWords(s.text) + ' words</span><span class="cd-a"><button data-m="l" title="Move earlier"' + (i ? '' : ' disabled') + '>◀</button><button data-m="r" title="Move later"' + (i < CARDS.secs.length - 1 ? '' : ' disabled') + '>▶</button><button data-x title="Remove">✕</button></span></div></div>';
+  }).join('');
+}
+function cardsText() { const p = CARDS.pre.replace(/\s+$/, ''); return (p ? p + '\n\n' : '') + CARDS.secs.map(s => s.text.replace(/\s+$/, '')).join('\n\n') + '\n'; }
+function closeCards() { const el = $('#cards'); if (!el) return; if (CARDS.dirty && !confirm('Discard the new order?')) return; el.hidden = true; ed.focus(); }
+function applyCards() {
+  if (CARDS.dirty) { const out = cardsText(); ed.focus(); ed.setSelectionRange(0, ed.value.length); insertText(out); ed.setSelectionRange(0, 0); toast('Sections rearranged'); }
+  CARDS.dirty = false; $('#cards').hidden = true; ed.focus();
+}
+
+const TOOL_COMMANDS = [
+  ['Rearrange sections (outline cards)', mod_() + ' ⇧ O', openCards],
+  ['Style check: toggle underlines', '', () => { S.style = !S.style; saveSettings(); applySettings(); syncSettingsForm(); toast('Style check ' + (S.style ? 'on' : 'off')); }],
+  ['Style check: apply safe fixes', '', fixAllStyle],
+  ['Show style issues', '', () => { toggleSidebar(true); setTab('insights'); }],
+  ['Filter library by tag…', '', () => { const t = prompt('Tag (without #)'); if (t) filterTag(t.replace(/^#/, '')); }],
+  ['Insert tag', '', () => insertText('#')]
+];
+
+$('#outlineList').addEventListener('click', e => { if (e.target.id === 'cardsBtn') openCards(); });
+COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS, ...TOOL_COMMANDS);
 let palSel = 0, palItems = [], palMode = 'cmd';
 function openPalette(mode, prefill) {
   palMode = mode === 'doc' ? 'doc' : 'cmd'; palSel = 0;
@@ -1948,6 +2127,7 @@ addEventListener('pagehide', flush);
 addEventListener('resize', () => { render(); });
 scroller.addEventListener('mousedown', e => { if (e.target === scroller || e.target.id === 'column') { ed.focus(); const l = ed.value.length; if (e.offsetY > inner.offsetTop) ed.setSelectionRange(l, l); } });
 $('#preview').addEventListener('click', e => {
+  const tg = e.target.closest('a.tag'); if (tg) { e.preventDefault(); filterTag(tg.dataset.tag); return; }
   const w = e.target.closest('a.wiki'); if (w) { e.preventDefault(); openWiki(w.dataset.wiki); return; }
   const a = e.target.closest('a[href^="#"]');
   if (a) { e.preventDefault(); const id = a.getAttribute('href').slice(1); try { $('#preview').querySelector('[id="' + id.replace(/"/g, '') + '"]')?.scrollIntoView(); } catch (_) { } }
@@ -1957,6 +2137,7 @@ document.addEventListener('keydown', e => {
   const m = e.metaKey || e.ctrlKey; const k = e.key.toLowerCase();
   if (e.key === 'Escape') {
     if (!$('#studio').hidden) return;
+    if ($('#cards') && !$('#cards').hidden) return;
     if (!$('#tplModal')?.hidden && $('#tplModal')) { $('#tplModal').hidden = true; ed.focus(); return; }
     if (!$('#palette').hidden) return closePalette();
     if (!$('#settings').hidden) return closeSettings();
@@ -1976,6 +2157,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'p') run(() => openPalette('doc'));
   else if (k === 'l' && e.shiftKey) run(lookupSelection);
   else if (k === 'e' && e.shiftKey) run(openStudio);
+  else if (k === 'o' && e.shiftKey) run(openCards);
   else if (k === '/') run(toggleComment);
   else if (k === 'enter' && e.shiftKey) run(toggleFullscreen);
   else if (k === 'f' && e.shiftKey) run(cycleFocus);
@@ -2019,7 +2201,7 @@ addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragN = 0; if (!$('#studio').hidden) return; document.body.classList.remove('drop'); if (e.dataTransfer?.files?.length) handleFiles([...e.dataTransfer.files]); });
 
 // desktop wrapper hooks (Electron menu)
-window.wren = { openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
+window.wren = { openCards, openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { styleScan, applyStyleFix, fixAllStyle, tagsOf, matchDoc, splitSections, CARDS, moveCard, applyCards, renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
 
 /* ───────── boot ───────── */
 document.body.classList.toggle('nosb', !S.sidebar || innerWidth <= 820);
