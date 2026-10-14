@@ -15,13 +15,15 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 /* ───────── settings ───────── */
 const defaults = {
-  theme: 'auto', accent: '#10a5c8', font: 'mono', size: 18, lh: 1.7, width: 680,
+  theme: 'auto', accent: '#0a84ff', font: 'mono', size: 18, lh: 1.7, width: 680,
   focus: 'off', typewriter: true, spell: false, dailyGoal: 500, sidebar: true, preview: false,
   smart: true, autopair: true, fillers: false, style: false, pvTheme: 'standard',
   pos: { noun: false, verb: false, adj: false, adv: false, conj: false }
 };
 const S = Object.assign({}, defaults, store.get('settings', {}));
 S.pos = Object.assign({}, defaults.pos, S.pos || {});
+if (S.accent === '#10a5c8') S.accent = defaults.accent;
+const THEMES = [["light", "Light", "#ffffff", "#1d1d1f", 0], ["paper", "Paper", "#fbf9f4", "#2a2622", 0], ["sepia", "Sepia", "#f4ecd8", "#433422", 0], ["rose", "Rose", "#fff8f8", "#3b2226", 0], ["lavender", "Lavender", "#faf8ff", "#26223a", 0], ["mint", "Mint", "#f5faf7", "#1f2d24", 0], ["solar", "Solar", "#fdf6e3", "#586e75", 0], ["dark", "Dark", "#1c1c1e", "#f2f2f7", 1], ["graphite", "Graphite", "#26272b", "#e4e4e8", 1], ["midnight", "Midnight", "#0e1524", "#dbe4f5", 1], ["nord", "Nord", "#2e3440", "#e5e9f0", 1], ["plum", "Plum", "#1e1a2b", "#e9e4f7", 1], ["ink", "Ink", "#000000", "#f5f5f7", 1]];
 const FONTS = {
   mono: 'ui-monospace,"SF Mono","JetBrains Mono","IBM Plex Mono",Menlo,Consolas,"Liberation Mono",monospace',
   courier: '"Courier Prime","Courier New",Courier,monospace',
@@ -360,7 +362,7 @@ function renderLibrary() {
     const div = document.createElement('div');
     div.className = 'item' + (d.id === curId ? ' cur' : '');
     const body = txt.replace(/^#+\s*/gm, '').replace(/\s+/g, ' ').trim();
-    div.innerHTML = '<div class="t">' + (d.pinned ? '<span class="pin">★</span> ' : '') + esc(titleOf({ text: txt })) + '</div><div class="s">' + esc(fmtDate(d.updated)) + ' · ' + countWords(txt) + ' w · ' + esc(body.slice(0, 50)) + '</div>' +
+    div.innerHTML = '<div class="t">' + (d.pinned ? '<span class="pin">★</span> ' : '') + esc(titleOf({ text: txt })) + '</div><div class="s">' + esc(fmtDate(d.updated)) + ' · ' + countWords(txt) + ' w · ' + esc(snip(body, q)) + '</div>' +
       '<div class="acts"><button data-a="pin" title="' + (d.pinned ? 'Unpin' : 'Pin to top') + '">' + (d.pinned ? '★' : '☆') + '</button><button data-a="dup" title="Duplicate">⧉</button><button data-a="del" title="Move to Trash">🗑</button></div>';
     div.onclick = e => {
       const a = e.target.closest('button')?.dataset.a;
@@ -437,6 +439,7 @@ function openDoc(id) {
   ed.setSelectionRange(0, 0);
   scroller.scrollTop = 0;
   render(); renderLibrary(); if (tab !== 'lib') refreshPanel(); updatePreview();
+  { const c = $('#column'); c.classList.remove('swap'); void c.offsetWidth; c.classList.add('swap'); }
   setTimeout(() => ed.focus(), 0);
 }
 function newDoc(text = '') {
@@ -658,12 +661,13 @@ const EXPORTS = {
     f.onload = () => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 60000); };
   },
   copyhtml: async () => { try { const html = exportBody(); await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([mdOut(ed.value)], { type: 'text/plain' }) })]); toast('Copied rich text'); } catch (e) { toast('Copy not allowed here'); } },
+  present: () => openPresent(),
   copymd: async () => { try { await navigator.clipboard.writeText(mdOut(ed.value)); toast('Markdown copied'); } catch (e) { toast('Copy not allowed here'); } }
 };
 function showExportMenu() {
   const m = $('#exportMenu');
   if (!m.hidden) { m.hidden = true; return; }
-  const items = [['md', 'Markdown (.md)'], ['html', 'HTML (.html)'], ['pdf', 'PDF (print)…'], ['doc', 'Word (.doc)'], ['txt', 'Plain text (.txt)'], ['copyhtml', 'Copy as rich text'], ['copymd', 'Copy Markdown']];
+  const items = [['md', 'Markdown (.md)'], ['html', 'HTML (.html)'], ['pdf', 'PDF (print)…'], ['doc', 'Word (.doc)'], ['txt', 'Plain text (.txt)'], ['present', 'Present as slides'], ['copyhtml', 'Copy as rich text'], ['copymd', 'Copy Markdown']];
   m.innerHTML = items.map(([k, v]) => '<button data-x="' + k + '">' + v + '</button>').join('');
   m.hidden = false;
   m.onclick = e => { const k = e.target.dataset.x; if (k) { EXPORTS[k](); m.hidden = true; } };
@@ -742,12 +746,13 @@ function applySettings() {
   r.setProperty('--acc', S.accent); r.setProperty('--font', FONTS[S.font] || FONTS.mono);
   const th = S.theme === 'auto' ? (mq.matches ? 'dark' : 'light') : S.theme;
   document.body.dataset.theme = th;
-  const meta = $('meta[name=theme-color]'); if (meta) meta.content = { light: '#fafaf8', dark: '#17181a', sepia: '#f4ecd8' }[th];
+  const meta = $('meta[name=theme-color]'); if (meta) meta.content = (THEMES.find(x => x[0] === th) || THEMES[0])[2];
   r.setProperty('--pad-top', S.typewriter ? '38vh' : '56px'); r.setProperty('--pad-bot', S.typewriter ? '50vh' : '30vh');
   document.body.dataset.prop = (S.font === 'serif' || S.font === 'sans') ? '1' : '';
   ed.spellcheck = !!S.spell;
   if (!$('#preview').hidden && typeof updatePreview === 'function') updatePreview();
   $$('[data-focus]').forEach(b => b.classList.toggle('on', b.dataset.focus === S.focus));
+  drawSwatches();
   render();
 }
 mq.addEventListener?.('change', () => S.theme === 'auto' && applySettings());
@@ -760,7 +765,7 @@ function cycleFocus() {
   S.focus = order[(order.indexOf(S.focus) + 1) % order.length]; saveSettings(); applySettings(); toast('Focus: ' + S.focus);
 }
 function cycleTheme() {
-  const order = ['light', 'dark', 'sepia'];
+  const order = THEMES.map(t => t[0]);
   const cur = document.body.dataset.theme;
   S.theme = order[(order.indexOf(cur) + 1) % order.length]; saveSettings(); applySettings(); syncSettingsForm();
 }
@@ -1052,6 +1057,515 @@ const TPL = [
   { name: 'Short story', cat: 'Creative', md: '# $0\n\n*A short story*\n\n---\n\n// Setting: \n// Character: \n// What changes: \n\nIt began \n' },
   { name: 'Character profile', cat: 'Creative', md: '# $0\n\n| | |\n| --- | --- |\n| **Age** | |\n| **Role** | |\n| **Wants** | |\n| **Fears** | |\n\n## Voice\n\n> \n\n## Backstory\n\n\n\n## Relationships\n\n- \n' }
 ];
+TPL.push(
+  { name: 'Daily plan', cat: 'Personal', md: `# {{date}}
+
+## <span style="color:#2563eb">Top 3</span>
+
+- [ ] $0
+- [ ] 
+- [ ] 
+
+## Schedule
+
+| Time | Plan |
+| --- | --- |
+| Morning | |
+| Afternoon | |
+| Evening | |
+
+## Notes
+
+` },
+  { name: 'Habit tracker', cat: 'Personal', md: `# Habits · {{date}}
+
+| Habit | Mon | Tue | Wed | Thu | Fri | Sat | Sun |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| $0 | | | | | | | |
+| Exercise | | | | | | | |
+| Read | | | | | | | |
+| Sleep 8h | | | | | | | |
+
+> Mark each day with ✓ — streaks beat intensity.
+` },
+  { name: 'Goal setting', cat: 'Personal', md: `# Goal: $0
+
+*Started {{date}}*
+
+## <span style="color:#7c3aed">Why it matters</span>
+
+## <span style="color:#16a34a">Success looks like</span>
+
+- 
+
+## <span style="color:#f97316">Milestones</span>
+
+- [ ] 30 days
+- [ ] 60 days
+- [ ] 90 days
+
+## Obstacles & plan
+
+| Obstacle | If it happens, I will… |
+| --- | --- |
+| | |
+` },
+  { name: 'Reading list', cat: 'Personal', md: `# Reading list
+
+| | Title | Author | Status |
+| :---: | --- | --- | --- |
+| 1 | $0 | | To read |
+| 2 | | | |
+| 3 | | | |
+
+## Currently reading
+
+- 
+
+## Finished
+
+- 
+` },
+  { name: 'Budget plan', cat: 'Personal', md: `# Budget · {{date}}
+
+## Income
+
+| Source | Amount |
+| --- | ---: |
+| $0 | |
+
+## Fixed costs
+
+| Item | Amount |
+| --- | ---: |
+| Rent | |
+| Utilities | |
+| Insurance | |
+
+## Variable
+
+| Item | Planned | Actual |
+| --- | ---: | ---: |
+| Groceries | | |
+| Transport | | |
+| Fun | | |
+
+> **Rule of thumb:** 50 needs · 30 wants · 20 savings.
+` },
+  { name: 'Workout log', cat: 'Personal', md: `# Workout · {{date}}
+
+**Focus:** $0  
+**Energy (1–5):** 
+
+| Exercise | Sets | Reps | Weight |
+| --- | :---: | :---: | ---: |
+| | | | |
+| | | | |
+| | | | |
+
+## Notes
+
+` },
+  { name: 'Packing list', cat: 'Personal', md: `# Packing · $0
+
+## Documents
+- [ ] Passport / ID
+- [ ] Tickets
+- [ ] Insurance
+
+## Clothes
+- [ ] 
+- [ ] 
+
+## Tech
+- [ ] Phone charger
+- [ ] Adapter
+- [ ] Headphones
+
+## Toiletries
+- [ ] 
+` },
+  { name: 'Weekly meal plan', cat: 'Personal', md: `# Meals · week of {{date}}
+
+| Day | Breakfast | Lunch | Dinner |
+| --- | --- | --- | --- |
+| Mon | $0 | | |
+| Tue | | | |
+| Wed | | | |
+| Thu | | | |
+| Fri | | | |
+| Sat | | | |
+| Sun | | | |
+
+## Shopping list
+
+- [ ] 
+` },
+  { name: 'Meeting agenda', cat: 'Work', md: `# Agenda: $0
+
+**When:** {{date}}  **Length:** 30 min  
+**Goal of this meeting:** 
+
+| Time | Topic | Owner |
+| --- | --- | --- |
+| 5 min | Check-in | |
+| 15 min | | |
+| 10 min | Next steps | |
+
+## Pre-reads
+
+- 
+` },
+  { name: 'Standup', cat: 'Work', md: `# Standup · {{date}}
+
+## <span style="color:#16a34a">Yesterday</span>
+
+- $0
+
+## <span style="color:#2563eb">Today</span>
+
+- 
+
+## <span style="color:#e11d48">Blockers</span>
+
+- None
+` },
+  { name: 'Decision log', cat: 'Work', md: `# Decision: $0
+
+**Date:** {{date}}  **Status:** Proposed  **Owner:** 
+
+## Context
+
+## Options considered
+
+| Option | Pros | Cons |
+| --- | --- | --- |
+| A | | |
+| B | | |
+
+## Decision
+
+> 
+
+## Consequences
+
+` },
+  { name: 'OKRs', cat: 'Work', md: `# OKRs · {{date}}
+
+## Objective: $0
+
+- [ ] **KR1:** 
+- [ ] **KR2:** 
+- [ ] **KR3:** 
+
+## Initiatives
+
+| Initiative | Owner | Due |
+| --- | --- | --- |
+| | | |
+
+## Check-in
+
+*Confidence (1–10):* 
+` },
+  { name: 'Retrospective', cat: 'Work', md: `# Retro · {{date}}
+
+## <span style="color:#16a34a">What went well</span>
+
+- $0
+
+## <span style="color:#f97316">What could be better</span>
+
+- 
+
+## <span style="color:#2563eb">Ideas</span>
+
+- 
+
+## Actions
+
+- [ ] 
+` },
+  { name: 'SWOT analysis', cat: 'Work', md: `# SWOT · $0
+
+| Strengths | Weaknesses |
+| --- | --- |
+| | |
+
+| Opportunities | Threats |
+| --- | --- |
+| | |
+
+## So what?
+
+` },
+  { name: 'Interview notes', cat: 'Work', md: `# Interview · $0
+
+**Date:** {{date}}  **Role:** 
+
+## Impressions
+
+## Questions & answers
+
+> **Q:** 
+>
+> **A:** 
+
+## Scorecard
+
+| Skill | 1–5 | Evidence |
+| --- | :---: | --- |
+| | | |
+
+**Verdict:** 
+` },
+  { name: 'One-pager', cat: 'Work', md: `# $0
+
+> One sentence that explains it.
+
+## Problem
+
+## Solution
+
+## Why now
+
+## Plan
+
+1. 
+2. 
+3. 
+
+## Ask
+
+` },
+  { name: 'Pitch outline', cat: 'Work', md: `# Pitch: $0
+
+1. **Hook** — 
+2. **Problem** — 
+3. **Solution** — 
+4. **Demo** — 
+5. **Market** — 
+6. **Traction** — 
+7. **Team** — 
+8. **The ask** — 
+` },
+  { name: 'Press release', cat: 'Work', md: `# $0
+
+*{{date}} — For immediate release*
+
+**Lead paragraph:** who, what, when, where, why.
+
+Second paragraph with the key detail.
+
+> “Quote from a spokesperson.” — Name, Title
+
+## About
+
+---
+
+**Contact:** 
+` },
+  { name: 'Lecture notes', cat: 'Study', md: `# $0
+
+*{{date}}*
+
+| Cues | Notes |
+| --- | --- |
+| | |
+| | |
+
+## Summary
+
+` },
+  { name: 'Flashcards', cat: 'Study', md: `# Flashcards · $0
+
+| Question | Answer |
+| --- | --- |
+| | |
+| | |
+| | |
+` },
+  { name: 'Research paper', cat: 'Study', md: `# $0
+
+*Abstract — two or three sentences.*
+
+## 1 Introduction
+
+## 2 Background
+
+## 3 Method
+
+## 4 Results
+
+## 5 Discussion
+
+## References
+
+1. 
+` },
+  { name: 'Lab notebook', cat: 'Study', md: `# Experiment: $0
+
+**Date:** {{date}}
+
+## Hypothesis
+
+## Materials
+
+- 
+
+## Procedure
+
+1. 
+
+## Observations
+
+| Trial | Result | Notes |
+| --- | --- | --- |
+| 1 | | |
+
+## Conclusion
+
+` },
+  { name: 'Speech', cat: 'Writing', md: `# $0
+
+*Length: 5 minutes · ~650 words*
+
+## Opening — hook
+
+## Point one
+
+## Point two
+
+## Point three
+
+## Close — call to action
+
+` },
+  { name: 'Poem', cat: 'Creative', md: `# $0
+
+*{{date}}*
+
+&nbsp;
+
+` },
+  { name: 'Screenplay scene', cat: 'Creative', md: `# SCENE $0
+
+**INT. LOCATION — DAY**
+
+*Action line describing what we see.*
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**CHARACTER**  
+&nbsp;&nbsp;&nbsp;&nbsp;Dialogue goes here.
+
+` },
+  { name: 'Chapter outline', cat: 'Creative', md: `# $0
+
+| # | Chapter | Purpose | Status |
+| :---: | --- | --- | --- |
+| 1 | | | Idea |
+| 2 | | | |
+| 3 | | | |
+
+## Themes
+
+- 
+
+## Open questions
+
+- 
+` },
+  { name: 'README', cat: 'Dev', md: `# $0
+
+> What this project does in one line.
+
+## Install
+
+\`\`\`sh
+npm install
+\`\`\`
+
+## Usage
+
+\`\`\`js
+
+\`\`\`
+
+## Contributing
+
+## License
+` },
+  { name: 'Bug report', cat: 'Dev', md: `# Bug: $0
+
+**Severity:** Medium  **Found:** {{date}}
+
+## Steps to reproduce
+
+1. 
+2. 
+
+## Expected
+
+## Actual
+
+## Environment
+
+- OS: 
+- Version: 
+` },
+  { name: 'Changelog', cat: 'Dev', md: `# Changelog
+
+## [Unreleased]
+
+### Added
+- $0
+
+### Changed
+- 
+
+### Fixed
+- 
+` },
+  { name: 'Architecture decision', cat: 'Dev', md: `# ADR: $0
+
+**Status:** Proposed · {{date}}
+
+## Context
+
+## Decision
+
+## Consequences
+
+- Good: 
+- Bad: 
+` },
+  { name: 'Idea capture', cat: 'Creative', md: `# Idea: $0
+
+*{{date}} #idea*
+
+## The spark
+
+## Why it could work
+
+## First tiny step
+
+- [ ] 
+` },
+  { name: 'Brain dump', cat: 'Personal', md: `# Brain dump · {{date}}
+
+Write everything on your mind. Sort it later.
+
+$0
+
+---
+
+## Sort it
+
+- [ ] Do
+- [ ] Delegate
+- [ ] Drop
+` }
+);
+
 function fromTemplate(name) {
   const t = TPL.find(x => x.name === name); if (!t) return;
   const d = new Date();
@@ -1201,10 +1715,6 @@ const COMMANDS = [
   ['Focus: sentence', '', () => { S.focus = 'sentence'; applySettings(); saveSettings(); }],
   ['Focus: paragraph', '', () => { S.focus = 'paragraph'; applySettings(); saveSettings(); }],
   ['Toggle typewriter scrolling', '', () => { S.typewriter = !S.typewriter; saveSettings(); applySettings(); syncSettingsForm(); }],
-  ['Theme: light', '', () => { S.theme = 'light'; saveSettings(); applySettings(); syncSettingsForm(); }],
-  ['Theme: dark', '', () => { S.theme = 'dark'; saveSettings(); applySettings(); syncSettingsForm(); }],
-  ['Theme: sepia', '', () => { S.theme = 'sepia'; saveSettings(); applySettings(); syncSettingsForm(); }],
-  ['Theme: auto', '', () => { S.theme = 'auto'; saveSettings(); applySettings(); syncSettingsForm(); }],
   ['Find & replace', mod + ' F', () => toggleFind(true)],
   ['Show outline', '', () => { toggleSidebar(true); setTab('outline'); }],
   ['Show history', '', () => { toggleSidebar(true); setTab('history'); }],
@@ -2046,7 +2556,109 @@ const TOOL_COMMANDS = [
 ];
 
 $('#outlineList').addEventListener('click', e => { if (e.target.id === 'cardsBtn') openCards(); });
-COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS, ...TOOL_COMMANDS);
+/* ───────── themes picker, daily note, presentation, reading mode, table tools ───────── */
+const ACCENTS = ['#0a84ff', '#5e5ce6', '#bf5af2', '#ff375f', '#ff9f0a', '#30b0c7', '#32d74b', '#8e8e93'];
+function setTheme(id) { S.theme = id; saveSettings(); applySettings(); syncSettingsForm(); }
+function drawSwatches() {
+  const a = $('#themeSw'); if (!a) return;
+  a.innerHTML = [['auto', 'Auto', 'linear-gradient(90deg,#fff 50%,#1c1c1e 50%)', '#888', 0], ...THEMES.map(t => [t[0], t[1], t[2], t[3], t[4]])].map(([id, l, bg, fg]) => '<button class="sw-t' + (S.theme === id ? ' on' : '') + '" data-t="' + id + '" title="' + l + '" style="--b:' + bg + ';--f:' + fg + '"><i>Aa</i><span>' + l + '</span></button>').join('');
+  $('#accSw').innerHTML = ACCENTS.map(c => '<button class="sw-a' + (S.accent.toLowerCase() === c ? ' on' : '') + '" data-c="' + c + '" style="background:' + c + '" title="' + c + '" aria-label="Accent ' + c + '"></button>').join('');
+}
+$('#themeSw').addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (b) setTheme(b.dataset.t); });
+$('#accSw').addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) { S.accent = b.dataset.c; saveSettings(); applySettings(); syncSettingsForm(); } });
+
+function openDaily() {
+  const title = new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const d = liveDocs().find(x => norm(titleOf({ text: textOf(x) })) === norm(title));
+  if (d) { openDoc(d.id); return toast('Today’s note'); }
+  const t = '# ' + title + '\n\n## Plan\n\n- [ ] \n\n## Notes\n\n\n\n## Reflection\n\n';
+  newDoc(t); const p = t.indexOf('- [ ] ') + 6; ed.setSelectionRange(p, p); ensureCaret(false); render();
+}
+
+function toggleReading(force) {
+  const on = force ?? !document.body.classList.contains('reading');
+  document.body.classList.toggle('reading', on);
+  $('#preview').hidden = on ? false : !S.preview;
+  if (on) updatePreview(); else ed.focus();
+  if (on) toast('Reading mode · Esc to exit');
+}
+
+function splitSlides(t) {
+  const lines = t.replace(/\r\n?/g, '\n').split('\n'); let fence = false;
+  const hasHr = lines.some(l => { if (FENCE.test(l)) fence = !fence; return !fence && /^\s*([-*_])(\s*\1){2,}\s*$/.test(l); });
+  const out = []; let cur = []; fence = false;
+  const push = () => { const s = cur.join('\n').trim(); if (s) out.push(s); cur = []; };
+  for (const l of lines) {
+    if (FENCE.test(l)) fence = !fence;
+    if (!fence && hasHr && /^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) { push(); continue; }
+    if (!fence && !hasHr && /^#{1,2}\s/.test(l)) push();
+    cur.push(l);
+  }
+  push(); return out;
+}
+const PR = { i: 0, slides: [] };
+function openPresent() {
+  PR.slides = splitSlides(ed.value); if (!PR.slides.length) return toast('Nothing to present yet');
+  let el = $('#present');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'present';
+    el.innerHTML = '<div id="prSlide" class="md"></div><div id="prBar"><i></i></div><div id="prHint">← → to move · Esc to exit</div><button id="prClose" class="icon" aria-label="Exit presentation">✕</button>';
+    document.body.appendChild(el);
+    el.addEventListener('click', e => { if (e.target.closest('#prClose')) return closePresent(); prGo(e.clientX < innerWidth * .3 ? -1 : 1); });
+  }
+  PR.i = 0; el.hidden = false; document.addEventListener('keydown', prKey, true); drawSlide(0);
+  try { if (el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().catch(() => { }); } catch (e) { }
+}
+function drawSlide(dir) {
+  const s = $('#prSlide'), t = PR.slides[PR.i], title = /^#\s/.test(t) && t.split('\n').filter(x => x.trim()).length <= 2;
+  s.className = 'md' + (title ? ' pr-title' : '');
+  s.innerHTML = renderMarkdown(t);
+  s.style.animation = 'none'; void s.offsetWidth; s.style.animation = dir < 0 ? 'prInL .45s var(--spring)' : 'prInR .45s var(--spring)';
+  $('#prBar i').style.width = ((PR.i + 1) / PR.slides.length * 100) + '%';
+}
+function prGo(d) { const n = PR.i + d; if (n < 0 || n >= PR.slides.length) return; PR.i = n; drawSlide(d); }
+function prKey(e) {
+  const k = e.key; let h = true;
+  if (k === 'ArrowRight' || k === 'ArrowDown' || k === ' ' || k === 'PageDown' || k === 'Enter') prGo(1);
+  else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp' || k === 'Backspace') prGo(-1);
+  else if (k === 'Home') { PR.i = 0; drawSlide(-1); } else if (k === 'End') { PR.i = PR.slides.length - 1; drawSlide(1); }
+  else if (k === 'Escape') closePresent(); else h = false;
+  if (h) { e.preventDefault(); e.stopPropagation(); }
+}
+function closePresent() {
+  const el = $('#present'); if (!el) return; el.hidden = true; document.removeEventListener('keydown', prKey, true);
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) { } ed.focus();
+}
+
+function formatTable() {
+  const t = ed.value, p = ed.selectionStart, lines = t.split('\n'), isRow = l => /^\s*\|.*\|\s*$/.test(l);
+  let off = 0, idx = -1; for (let i = 0; i < lines.length; i++) { if (p >= off && p <= off + lines[i].length) { idx = i; break; } off += lines[i].length + 1; }
+  if (idx < 0 || !isRow(lines[idx])) return toast('Put the cursor inside a table first');
+  let a = idx, b = idx; while (a > 0 && isRow(lines[a - 1])) a--; while (b < lines.length - 1 && isRow(lines[b + 1])) b++;
+  const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  const rows = lines.slice(a, b + 1).map(cells), si = rows.length > 1 && rows[1].every(c => /^:?-{2,}:?$/.test(c)) ? 1 : -1;
+  const n = Math.max(...rows.map(r => r.length)), al = [], w = [];
+  for (let c = 0; c < n; c++) { const m = si > 0 ? rows[si][c] || '' : ''; al[c] = /^:-+:$/.test(m) ? 'c' : /-:$/.test(m) ? 'r' : /^:-/.test(m) ? 'l' : ''; w[c] = Math.max(3, ...rows.map((r, i) => i === si ? 0 : (r[c] || '').length)); }
+  const pad = (s, c) => al[c] === 'r' ? s.padStart(w[c]) : al[c] === 'c' ? s.padStart(Math.floor((w[c] + s.length) / 2)).padEnd(w[c]) : s.padEnd(w[c]);
+  const out = rows.map((r, i) => '| ' + Array.from({ length: n }, (_, c) => i === si ? (al[c] === 'c' ? ':' + '-'.repeat(w[c] - 2) + ':' : al[c] === 'r' ? '-'.repeat(w[c] - 1) + ':' : al[c] === 'l' ? ':' + '-'.repeat(w[c] - 1) : '-'.repeat(w[c])) : pad(r[c] || '', c)).join(' | ') + ' |').join('\n');
+  let s = 0; for (let i = 0; i < a; i++) s += lines[i].length + 1; const e = s + lines.slice(a, b + 1).join('\n').length;
+  replaceRange(s, e, out, s + out.length); toast('Table formatted');
+}
+function snip(body, q) {
+  const toks = (q.match(/"[^"]+"|\S+/g) || []).map(x => x.replace(/"/g, '')).filter(x => x && !/^(#|older:|newer:|words[<>]|has:|pinned$)/.test(x));
+  if (!toks.length) return body.slice(0, 50);
+  const low = body.toLowerCase(); let i = -1; for (const tk of toks) { i = low.indexOf(tk); if (i >= 0) break; }
+  return i < 0 ? body.slice(0, 50) : (i > 20 ? '…' : '') + body.slice(Math.max(0, i - 20), i + 50);
+}
+const FEAT_COMMANDS = [
+  ['Today’s daily note', mod_() + ' ⇧ D', openDaily],
+  ['Present as slides', '', openPresent],
+  ['Reading mode', '', () => toggleReading()],
+  ['Format table at cursor', '', formatTable],
+  ...[['auto', 'Auto'], ...THEMES.map(t => [t[0], t[1]])].map(([id, l]) => ['Theme: ' + l, '', () => setTheme(id)])
+];
+
+COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS, ...TOOL_COMMANDS, ...FEAT_COMMANDS);
 let palSel = 0, palItems = [], palMode = 'cmd';
 function openPalette(mode, prefill) {
   palMode = mode === 'doc' ? 'doc' : 'cmd'; palSel = 0;
@@ -2138,6 +2750,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (!$('#studio').hidden) return;
     if ($('#cards') && !$('#cards').hidden) return;
+    if (document.body.classList.contains('reading')) return toggleReading(false);
     if (!$('#tplModal')?.hidden && $('#tplModal')) { $('#tplModal').hidden = true; ed.focus(); return; }
     if (!$('#palette').hidden) return closePalette();
     if (!$('#settings').hidden) return closeSettings();
@@ -2158,6 +2771,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'l' && e.shiftKey) run(lookupSelection);
   else if (k === 'e' && e.shiftKey) run(openStudio);
   else if (k === 'o' && e.shiftKey) run(openCards);
+  else if (k === 'd' && e.shiftKey) run(openDaily);
   else if (k === '/') run(toggleComment);
   else if (k === 'enter' && e.shiftKey) run(toggleFullscreen);
   else if (k === 'f' && e.shiftKey) run(cycleFocus);
@@ -2201,7 +2815,7 @@ addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragN = 0; if (!$('#studio').hidden) return; document.body.classList.remove('drop'); if (e.dataTransfer?.files?.length) handleFiles([...e.dataTransfer.files]); });
 
 // desktop wrapper hooks (Electron menu)
-window.wren = { openCards, openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { styleScan, applyStyleFix, fixAllStyle, tagsOf, matchDoc, splitSections, CARDS, moveCard, applyCards, renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
+window.wren = { openDaily, openPresent, toggleReading, formatTable, setTheme, openCards, openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { splitSlides, snip, THEMES, styleScan, applyStyleFix, fixAllStyle, tagsOf, matchDoc, splitSections, CARDS, moveCard, applyCards, renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
 
 /* ───────── boot ───────── */
 document.body.classList.toggle('nosb', !S.sidebar || innerWidth <= 820);
