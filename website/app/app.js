@@ -2774,7 +2774,7 @@ function drawIdeas() {
 }
 function drawPrev() { mq$('#mPrev').innerHTML = '<div class="md">' + unwiki(renderMarkdown(mailFull())) + '</div><span class="m-edit">Edit</span>'; }
 function mailCount() { const n = countWords(MAIL.body); mq$('#mCount').textContent = n + (n === 1 ? ' word' : ' words') + (n ? ' · ' + Math.max(1, Math.round(n / 200)) + ' min read' : ''); mq$('#mQs').hidden = !!MAIL.body.trim(); }
-function drawCards() {
+function drawMailCards() {
   const f = (k, label, val, multi) => '<div class="m-card" data-k="' + k + '"><div class="m-ch"><span>' + label + '</span><button data-copy="' + k + '">Copy</button></div>' + (multi ? '<textarea rows="9" data-edit="' + k + '" spellcheck="true">' + esc(val) + '</textarea>' : '<input data-edit="' + k + '" value="' + attr(val) + '" spellcheck="false">') + '</div>';
   mq$('#mCards').innerHTML = f('to', 'To', mailAddrLine('to')) + (MAIL.cc.length ? f('cc', 'Cc', mailAddrLine('cc')) : '') + (MAIL.bcc.length ? f('bcc', 'Bcc', mailAddrLine('bcc')) : '') + f('subject', 'Subject', MAIL.subject) +
     '<div class="m-card wide" data-k="body"><div class="m-ch"><span>Message</span><span class="m-cb"><button data-copy="plain">Copy plain</button><button data-copy="rich">Copy formatted</button></span></div><textarea rows="10" data-edit="body" spellcheck="true">' + esc(MAIL.body) + '</textarea>' + (MAIL.sig && mailSig.trim() ? '<div class="m-sigp">' + esc(mailSig.trim()) + '</div>' : '') + '</div>';
@@ -2789,7 +2789,7 @@ function stageShow(n) {
   $('#mail').querySelectorAll('.m-steps span').forEach(s => { s.classList.toggle('on', +s.dataset.s === n); s.classList.toggle('past', +s.dataset.s < n); });
   if (n === 1) { mailCount(); setTimeout(() => mq$('#mBody').focus(), 60); }
   if (n === 2) { syncFields(); drawPrev(); const i = MAIL.to.length ? mq$('#mSubject') : mq$('#mc-to input'); setTimeout(() => i.focus(), 80); }
-  if (n === 3) { drawCards(); drawChecks(); }
+  if (n === 3) { drawMailCards(); drawChecks(); }
 }
 const sleep = ms => new Promise(r => setTimeout(r, reduceMotion() ? Math.min(ms, 60) : ms));
 async function playAnim(kind) {
