@@ -405,8 +405,9 @@ function renderHistory() {
   if (!h.length) { el.innerHTML = '<div class="empty">Snapshots appear here automatically as you write (about every 90 seconds of editing).</div>'; return; }
   h.forEach(s => {
     const div = document.createElement('div'); div.className = 'item';
-    div.innerHTML = '<div class="t">' + esc(new Date(s.t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</div><div class="s">' + countWords(s.text) + ' words · click to restore</div>';
-    div.onclick = () => {
+    div.innerHTML = '<div class="t">' + esc(new Date(s.t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</div><div class="s">' + countWords(s.text) + ' words · click to restore</div><div class="acts"><button data-a="diff" title="Compare with the current text">Compare</button></div>';
+    div.onclick = e => {
+      if (e.target.closest('[data-a=diff]')) return openDiff(s);
       if (!confirm('Restore this version? Your current text is saved to history first.')) return;
       snapshot({ history: docs[curId].history, text: ed.value });
       docs[curId].history.unshift({ t: Date.now(), text: ed.value });
@@ -752,7 +753,7 @@ function applySettings() {
   ed.spellcheck = !!S.spell;
   if (!$('#preview').hidden && typeof updatePreview === 'function') updatePreview();
   $$('[data-focus]').forEach(b => b.classList.toggle('on', b.dataset.focus === S.focus));
-  drawSwatches();
+  drawSwatches(); if (typeof paintRanges === 'function') paintRanges();
   render();
 }
 mq.addEventListener?.('change', () => S.theme === 'auto' && applySettings());
@@ -2658,7 +2659,302 @@ const FEAT_COMMANDS = [
   ...[['auto', 'Auto'], ...THEMES.map(t => [t[0], t[1]])].map(([id, l]) => ['Theme: ' + l, '', () => setTheme(id)])
 ];
 
-COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS, ...TOOL_COMMANDS, ...FEAT_COMMANDS);
+/* ───────── focused email composer (writes, never sends) ───────── */
+const MAIL_QS = [
+  { name: 'Follow-up', subject: 'Following up', body: 'Hi $0,\n\nI wanted to follow up on our last conversation and see where things stand.\n\nIs there anything I can do to help move this forward?\n\nThanks,\n' },
+  { name: 'Introduction', subject: 'Introduction', body: 'Hi $0,\n\nI’m reaching out because …\n\nI’d love to hear your thoughts. Would a short call next week work?\n\nBest,\n' },
+  { name: 'Thank you', subject: 'Thank you', body: 'Hi $0,\n\nThank you so much for …. It meant a lot, and it made a real difference.\n\nWarmly,\n' },
+  { name: 'Meeting request', subject: 'Meeting request', body: 'Hi $0,\n\nCould we find 30 minutes to talk about …?\n\nI’m free:\n\n- Tuesday afternoon\n- Wednesday morning\n- Thursday after 2 pm\n\nTell me what suits you best.\n\nThanks,\n' },
+  { name: 'Status update', subject: 'Status update', body: 'Hi $0,\n\nQuick update on where we are:\n\n**Done**\n\n- \n\n**Next**\n\n- \n\n**Blocked**\n\n- Nothing\n\nBest,\n' },
+  { name: 'Polite decline', subject: 'Re: Your invitation', body: 'Hi $0,\n\nThank you for thinking of me. Unfortunately I can’t take this on right now.\n\nI really appreciate the offer and hope we can find another time.\n\nBest wishes,\n' },
+  { name: 'Reminder', subject: 'Friendly reminder', body: 'Hi $0,\n\nJust a friendly reminder about …, due on ….\n\nLet me know if you need anything from me.\n\nThanks,\n' },
+  { name: 'Apology', subject: 'My apologies', body: 'Hi $0,\n\nI’m sorry about …. That’s on me.\n\nHere’s what I’m doing to make it right: …\n\nThank you for your patience.\n\nSincerely,\n' },
+  { name: 'Request', subject: 'A quick request', body: 'Hi $0,\n\nI hope you’re well. I have a small request: could you …?\n\nIt would help because …. If it’s not possible, no problem at all.\n\nThank you,\n' },
+  { name: 'Out of office', subject: 'Out of office', body: 'Hi,\n\nThanks for your message. I’m away from $0 until ….\n\nFor anything urgent, please contact … at ….\n\nBest,\n' }
+];
+const MAIL = Object.assign({ body: '', to: [], cc: [], bcc: [], subject: '', sig: true, showCc: false }, store.get('mail', {}));
+let mailStep = 1, mailSig = store.get('sig', ''), contacts = store.get('contacts', []);
+const mailSave = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => store.set('mail', MAIL), 300); }; })();
+const MAIL_RE = /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]{2,}$/;
+function addrParse(raw) {
+  raw = raw.trim(); const m = raw.match(/^(.*?)\s*<([^<>]+)>$/), email = (m ? m[2] : raw).trim(), name = m ? m[1].replace(/^"|"$/g, '').trim() : '';
+  return { raw, name, email, ok: MAIL_RE.test(email) };
+}
+function splitAddrs(t) { const out = []; for (const p of t.split(/[,;\n]+/)) { const x = p.trim(); if (!x) continue; if (!/[<>]/.test(x) && /\s/.test(x)) out.push(...x.split(/\s+/)); else out.push(x); } return out; }
+function mdToPlain(md) {
+  return md.replace(/\r\n?/g, '\n').replace(/^\s*\/\/.*$/gm, '').replace(/<!--[\s\S]*?-->/g, '').replace(/<\/?(?:span|mark)[^>]*>/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, (m, t, u) => t === u ? u : t + ' (' + u + ')').replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (m, a, b) => b || a)
+    .replace(/^#{1,6}\s+/gm, '').replace(/(\*\*|__)(.+?)\1/g, '$2').replace(/(^|[^\w*])\*([^*\n]+)\*/g, '$1$2').replace(/(^|[^\w_])_([^_\n]+)_/g, '$1$2').replace(/~~(.+?)~~/g, '$1').replace(/`([^`]+)`/g, '$1')
+    .replace(/^(\s*)[-*+]\s+\[[ xX]\]\s+/gm, '$1• ').replace(/^(\s*)[-*+]\s+/gm, '$1• ').replace(/\n{3,}/g, '\n\n').trim();
+}
+const mailFull = () => MAIL.body.replace(/\s+$/, '') + (MAIL.sig && mailSig.trim() ? '\n\n' + mailSig.trim() : '');
+const mailPlain = () => mdToPlain(mailFull());
+const mailRich = () => '<div style="font:15px/1.6 -apple-system,\'Segoe UI\',Helvetica,Arial,sans-serif;color:#222">' + unwiki(renderMarkdown(mailFull())) + '</div>';
+const mailAddrLine = k => MAIL[k].join(', ');
+function mailAll() { return (MAIL.to.length ? 'To: ' + mailAddrLine('to') + '\n' : '') + (MAIL.cc.length ? 'Cc: ' + mailAddrLine('cc') + '\n' : '') + (MAIL.bcc.length ? 'Bcc: ' + mailAddrLine('bcc') + '\n' : '') + 'Subject: ' + MAIL.subject + '\n\n' + mailPlain(); }
+function mailtoUrl() {
+  const q = []; if (MAIL.cc.length) q.push('cc=' + encodeURIComponent(mailAddrLine('cc'))); if (MAIL.bcc.length) q.push('bcc=' + encodeURIComponent(mailAddrLine('bcc')));
+  q.push('subject=' + encodeURIComponent(MAIL.subject)); q.push('body=' + encodeURIComponent(mailPlain().slice(0, 1600)));
+  return 'mailto:' + encodeURIComponent(mailAddrLine('to')).replace(/%2C/g, ',').replace(/%40/g, '@').replace(/%20/g, '') + '?' + q.join('&');
+}
+function subjectIdeas(body) {
+  const lines = body.split('\n').map(l => l.trim()).filter(Boolean), out = [];
+  const h = lines.find(l => /^#{1,3}\s/.test(l)); if (h) out.push(h.replace(/^#+\s*/, ''));
+  const content = lines.filter(l => !/^(hi|hello|hey|dear|good (morning|afternoon|evening))\b/i.test(l) && !/^#/.test(l));
+  const first = (content[0] || '').replace(/[*_`>]/g, ''), sent = first.split(/(?<=[.!?])\s/)[0];
+  if (sent) { let s = sent.replace(/[.!?:]+$/, ''); if (s.length > 60) s = s.slice(0, 57).replace(/\s+\S*$/, '') + '…'; if (s.length > 3) out.push(s); }
+  const all = body.toLowerCase();
+  if (/follow(ing)? up/.test(all)) out.push('Following up'); if (/\bthank/.test(all)) out.push('Thank you'); if (/\b(meet|call|schedule|calendar)\b/.test(all)) out.push('Meeting request'); if (/\?/.test(body) && out.length < 3) out.push('Quick question');
+  return [...new Set(out)].slice(0, 4);
+}
+function mailChecks() {
+  const w = [], all = [...MAIL.to, ...MAIL.cc, ...MAIL.bcc].map(addrParse), bad = all.filter(a => !a.ok);
+  if (!MAIL.to.length) w.push('Add at least one recipient'); if (bad.length) w.push('Check the address' + (bad.length > 1 ? 'es' : '') + ': ' + bad.map(a => a.raw).join(', '));
+  if (!MAIL.subject.trim()) w.push('The subject is empty'); else { if (MAIL.subject.length > 70) w.push('The subject is long (' + MAIL.subject.length + ' characters)'); if (/[A-Z]{6,}/.test(MAIL.subject) && MAIL.subject === MAIL.subject.toUpperCase()) w.push('The subject is all capitals'); }
+  if (/\b(attach(ed|ment)?|enclosed)\b/i.test(MAIL.body)) w.push('You mention an attachment — remember to add it');
+  if (!MAIL.body.trim()) w.push('The message is empty');
+  const dup = MAIL.to.filter(x => MAIL.cc.includes(x) || MAIL.bcc.includes(x)); if (dup.length) w.push('Same address in several fields: ' + dup.join(', '));
+  return w;
+}
+function rememberContacts() {
+  for (const raw of [...MAIL.to, ...MAIL.cc, ...MAIL.bcc]) { const a = addrParse(raw); if (!a.ok) continue; contacts = contacts.filter(x => addrParse(x).email.toLowerCase() !== a.email.toLowerCase()); contacts.unshift(a.raw); }
+  contacts = contacts.slice(0, 80); store.set('contacts', contacts);
+}
+async function copyText(text, btn, label) {
+  let ok = false; try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { try { const t = document.createElement('textarea'); t.value = text; t.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(t); t.select(); ok = document.execCommand('copy'); t.remove(); } catch (_) { } }
+  flashCopied(btn, ok, label); return ok;
+}
+function flashCopied(btn, ok, label) { if (btn) { const o = btn.dataset.l || (btn.dataset.l = btn.textContent); btn.textContent = ok ? '✓ Copied' : 'Copy failed'; btn.classList.toggle('ok', ok); clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = o; btn.classList.remove('ok'); }, 1600); } toast(ok ? (label || 'Copied') : 'Copy is blocked here — select the text and press Ctrl/⌘ C'); }
+async function copyRich(btn) {
+  try { await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([mailRich()], { type: 'text/html' }), 'text/plain': new Blob([mailPlain()], { type: 'text/plain' }) })]); flashCopied(btn, true, 'Formatted message copied'); }
+  catch (e) { copyText(mailPlain(), btn, 'Copied as plain text'); }
+}
+
+const mq$ = s => $('#mail').querySelector(s), reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function buildMail() {
+  const el = document.createElement('div'); el.id = 'mail'; el.hidden = true;
+  const chipRow = (k, label) => '<div class="m-row" data-k="' + k + '"' + (k !== 'to' ? ' hidden' : '') + '><label>' + label + '</label><div class="m-chips" id="mc-' + k + '"><span class="cl"></span><input list="mContacts" autocomplete="off" spellcheck="false" aria-label="' + label + '" placeholder="' + (k === 'to' ? 'name@example.com' : '') + '"></div></div>';
+  el.innerHTML =
+    '<div class="m-top"><button id="mClose" class="m-plain">✕ Close</button><div class="m-steps"><span data-s="1"><i>1</i>Write</span><b></b><span data-s="2"><i>2</i>Details</span><b></b><span data-s="3"><i>3</i>Copy</span></div><div class="spacer"></div><button id="mFromNote" class="m-plain" title="Use the note you are editing">From note</button><button id="mNew" class="m-plain">New</button></div>' +
+    '<div class="m-stage" data-s="1">' +
+      '<section class="m-sec m-write"><div class="m-paper"><div class="m-qs" id="mQs"></div><textarea id="mBody" spellcheck="true" placeholder="Start with the message…" aria-label="Email message"></textarea><div class="m-foot"><span id="mCount">0 words</span><span class="m-tools"><button data-f="**" title="Bold">B</button><button data-f="*" title="Italic"><i>I</i></button><button data-f="list" title="List">•</button><button data-f="link" title="Link">↗</button></span></div></div><div class="m-act"><span class="m-hint">Ctrl/⌘ ↩ to continue</span><button id="mReady" class="m-go">Ready to send<span>→</span></button></div></section>' +
+      '<section class="m-sec m-details"><div class="m-sheet">' +
+        chipRow('to', 'To') + chipRow('cc', 'Cc') + chipRow('bcc', 'Bcc') +
+        '<div class="m-row"><label>Subject</label><input id="mSubject" autocomplete="off" aria-label="Subject" placeholder="What is this about?"><span class="m-more"><button id="mCcBtn" class="m-plain">Cc / Bcc</button></span></div>' +
+        '<div class="m-ideas" id="mIdeas"></div>' +
+        '<div class="m-opts"><label class="chk"><input type="checkbox" id="mSig"> Add my signature</label><button id="mSigEdit" class="m-plain">Edit signature</button></div><textarea id="mSigText" rows="3" placeholder="Your name&#10;Title · Company" hidden></textarea>' +
+        '<div class="m-checks" id="mChecks" role="status"></div>' +
+        '<div class="m-prev" id="mPrev" title="Edit message"></div>' +
+      '</div><div class="m-act"><button id="mBack1" class="m-plain">← Message</button><div class="spacer"></div><button id="mSend" class="m-go">Send<span>→</span></button></div></section>' +
+      '<section class="m-sec m-done"><div class="m-ok"><svg viewBox="0 0 52 52" width="54" height="54"><circle cx="26" cy="26" r="23" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M15 27l8 8 14-17" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><div><h2>Your email is ready</h2><p>Copy each part into your mail app. Fix anything that looks wrong below.</p></div></div>' +
+        '<div class="m-checks" id="mChecks2" role="status"></div><div id="mCards" class="m-cards"></div>' +
+        '<div class="m-act wrap"><button id="mBack2" class="m-plain">← Edit details</button><button id="mBack3" class="m-plain">Edit message</button><div class="spacer"></div><button id="mOpen" class="m-sec-btn">Open in mail app</button><button id="mSaveNote" class="m-sec-btn">Save as note</button><button id="mAll" class="m-go">Copy everything</button></div></section>' +
+    '</div><div id="mAnim" hidden></div><datalist id="mContacts"></datalist>';
+  document.body.appendChild(el); return el;
+}
+buildMail();
+function drawChips(k) {
+  const box = mq$('#mc-' + k), cl = box.querySelector('.cl');
+  cl.innerHTML = MAIL[k].map((r, i) => { const a = addrParse(r); return '<span class="m-chip' + (a.ok ? '' : ' bad') + '" data-i="' + i + '" title="' + attr(a.ok ? a.email : 'Not a valid address — click to edit') + '">' + esc(a.name || a.email || r) + '<i data-x="' + i + '" title="Remove">✕</i></span>'; }).join('');
+  mq$('[data-k=' + k + ']').hidden = !(k === 'to' || MAIL.showCc || MAIL[k].length);
+}
+function commitChips(k, input, force) {
+  const v = input.value; if (!v.trim()) return;
+  const parts = splitAddrs(v); if (!force && parts.length === 1 && !/[,;\n]$/.test(v) && !MAIL_RE.test(parts[0]) && !/<.+>$/.test(parts[0])) return;
+  for (const p of parts) if (!MAIL[k].includes(p)) MAIL[k].push(p);
+  input.value = ''; drawChips(k); mailSave(); drawChecks();
+}
+function drawChecks() {
+  const w = mailChecks(), html = w.length ? w.map(x => '<div class="w"><i>!</i>' + esc(x) + '</div>').join('') : '<div class="g"><i>✓</i>Everything looks good</div>';
+  mq$('#mChecks').innerHTML = html; mq$('#mChecks2').innerHTML = html;
+}
+function drawIdeas() {
+  const ideas = subjectIdeas(MAIL.body).filter(x => x !== MAIL.subject);
+  mq$('#mIdeas').innerHTML = ideas.length ? '<span>Try</span>' + ideas.map(x => '<button class="chip" data-s="' + attr(x) + '">' + esc(x) + '</button>').join('') : '';
+}
+function drawPrev() { mq$('#mPrev').innerHTML = '<div class="md">' + unwiki(renderMarkdown(mailFull())) + '</div><span class="m-edit">Edit</span>'; }
+function mailCount() { const n = countWords(MAIL.body); mq$('#mCount').textContent = n + (n === 1 ? ' word' : ' words') + (n ? ' · ' + Math.max(1, Math.round(n / 200)) + ' min read' : ''); mq$('#mQs').hidden = !!MAIL.body.trim(); }
+function drawCards() {
+  const f = (k, label, val, multi) => '<div class="m-card" data-k="' + k + '"><div class="m-ch"><span>' + label + '</span><button data-copy="' + k + '">Copy</button></div>' + (multi ? '<textarea rows="9" data-edit="' + k + '" spellcheck="true">' + esc(val) + '</textarea>' : '<input data-edit="' + k + '" value="' + attr(val) + '" spellcheck="false">') + '</div>';
+  mq$('#mCards').innerHTML = f('to', 'To', mailAddrLine('to')) + (MAIL.cc.length ? f('cc', 'Cc', mailAddrLine('cc')) : '') + (MAIL.bcc.length ? f('bcc', 'Bcc', mailAddrLine('bcc')) : '') + f('subject', 'Subject', MAIL.subject) +
+    '<div class="m-card wide" data-k="body"><div class="m-ch"><span>Message</span><span class="m-cb"><button data-copy="plain">Copy plain</button><button data-copy="rich">Copy formatted</button></span></div><textarea rows="10" data-edit="body" spellcheck="true">' + esc(MAIL.body) + '</textarea>' + (MAIL.sig && mailSig.trim() ? '<div class="m-sigp">' + esc(mailSig.trim()) + '</div>' : '') + '</div>';
+}
+function syncFields() {
+  mq$('#mBody').value = MAIL.body; mq$('#mSubject').value = MAIL.subject; mq$('#mSig').checked = MAIL.sig; mq$('#mSigText').value = mailSig;
+  ['to', 'cc', 'bcc'].forEach(drawChips); mailCount(); drawChecks(); drawIdeas();
+  mq$('#mContacts').innerHTML = contacts.map(c => '<option value="' + attr(c) + '">').join('');
+}
+function stageShow(n) {
+  mailStep = n; const st = mq$('.m-stage'); st.dataset.s = n;
+  $('#mail').querySelectorAll('.m-steps span').forEach(s => { s.classList.toggle('on', +s.dataset.s === n); s.classList.toggle('past', +s.dataset.s < n); });
+  if (n === 1) { mailCount(); setTimeout(() => mq$('#mBody').focus(), 60); }
+  if (n === 2) { syncFields(); drawPrev(); const i = MAIL.to.length ? mq$('#mSubject') : mq$('#mc-to input'); setTimeout(() => i.focus(), 80); }
+  if (n === 3) { drawCards(); drawChecks(); }
+}
+const sleep = ms => new Promise(r => setTimeout(r, reduceMotion() ? Math.min(ms, 60) : ms));
+async function playAnim(kind) {
+  const a = mq$('#mAnim'); a.hidden = false; a.className = 'run ' + kind;
+  if (kind === 'seal') {
+    const lines = MAIL.body.split('\n').filter(x => x.trim()).slice(0, 6).map(x => '<p>' + esc(x.replace(/[#*_`>]/g, '').slice(0, 46)) + '</p>').join('');
+    a.innerHTML = '<div class="scene"><div class="env"><div class="e-back"></div><div class="e-letter">' + lines + '</div><div class="e-front"></div><div class="e-flap"></div><div class="e-seal">✓</div></div><div class="cap">Sealing your message…</div></div>';
+    await sleep(2100);
+  } else {
+    a.innerHTML = '<div class="scene"><svg class="trail" viewBox="0 0 400 220" aria-hidden="true"><path pathLength="1" d="M20 190 C 120 215, 190 30, 380 40"/></svg><svg class="plane" viewBox="0 0 24 24" width="46" height="46" aria-hidden="true"><path d="M21.5 3.2L2.800 10.600c-.8.300-.800 1.400 0 1.700l5.300 2 2 5.300c.300.800 1.400.800 1.700 0L21.500 3.200z" fill="currentColor"/><path d="M8.100 14.300l13.400-11.100" stroke="var(--bg)" stroke-width="1.200" fill="none"/></svg><div class="cap">Packing it up…</div></div>';
+    await sleep(1900);
+  }
+  a.hidden = true; a.innerHTML = ''; a.className = '';
+}
+let mailBusy = false;
+async function mailReady() {
+  if (mailBusy) return; MAIL.body = mq$('#mBody').value;
+  if (!MAIL.body.trim()) { toast('Write your message first'); return mq$('#mBody').focus(); }
+  mailBusy = true; mailSave(); await playAnim('seal');
+  if (!MAIL.subject.trim()) MAIL.subject = subjectIdeas(MAIL.body)[0] || '';
+  stageShow(2); mailBusy = false;
+}
+async function mailSend() {
+  if (mailBusy) return; mailBusy = true; rememberContacts(); mailSave(); await playAnim('send'); stageShow(3); mailBusy = false;
+}
+function openMail(prefill) {
+  if (prefill) { Object.assign(MAIL, { body: prefill.body || '', subject: prefill.subject || '', to: [], cc: [], bcc: [] }); mailSave(); }
+  $('#mail').hidden = false; syncFields(); stageShow(1);
+}
+function closeMail() { if (mailStep === 1) MAIL.body = mq$('#mBody').value; store.set('mail', MAIL); $('#mail').hidden = true; ed.focus(); }
+function newMail() { Object.assign(MAIL, { body: '', to: [], cc: [], bcc: [], subject: '', showCc: false }); store.set('mail', MAIL); syncFields(); stageShow(1); }
+function mailFromNote() {
+  const sel = ed.value.slice(ed.selectionStart, ed.selectionEnd).trim(); let t = sel || ed.value.trim(), subject = '';
+  if (!sel) { const m = t.match(/^#\s+(.+)\n?/); if (m) { subject = m[1].trim(); t = t.slice(m[0].length).trim(); } }
+  return { body: t, subject };
+}
+(function wireMail() {
+  const el = $('#mail');
+  el.addEventListener('keydown', e => {
+    e.stopPropagation(); const m = e.metaKey || e.ctrlKey;
+    if (e.key === 'Escape') { e.preventDefault(); closeMail(); return; }
+    if (m && e.key === 'Enter') { e.preventDefault(); if (mailStep === 1) mailReady(); else if (mailStep === 2) mailSend(); }
+    else if (m && e.target.id === 'mBody' && /^[bi]$/i.test(e.key)) { e.preventDefault(); mailFmt(e.key.toLowerCase() === 'b' ? '**' : '*'); }
+  });
+  $('#mClose').onclick = closeMail; $('#mNew').onclick = newMail;
+  $('#mFromNote').onclick = () => { openMail(mailFromNote()); };
+  const body = mq$('#mBody');
+  body.addEventListener('input', () => { MAIL.body = body.value; mailCount(); mailSave(); });
+  mq$('#mQs').addEventListener('click', e => { const b = e.target.closest('[data-q]'); if (!b) return; const q = MAIL_QS[+b.dataset.q], c = q.body.indexOf('$0'); body.value = MAIL.body = q.body.replace('$0', ''); MAIL.subject = q.subject; mailCount(); mailSave(); body.focus(); body.setSelectionRange(c < 0 ? body.value.length : c, c < 0 ? body.value.length : c); });
+  mq$('#mQs').innerHTML = '<span>Start from</span>' + MAIL_QS.map((q, i) => '<button class="chip" data-q="' + i + '">' + q.name + '</button>').join('');
+  function mailFmt(f) {
+    const a = body.selectionStart, b = body.selectionEnd, v = body.value, s = v.slice(a, b); let out, ca, cb;
+    if (f === 'list') { const ls = v.lastIndexOf('\n', a - 1) + 1, le = b; const blk = v.slice(ls, le || ls).split('\n').map(l => '- ' + l).join('\n'); body.setRangeText(blk, ls, le, 'end'); }
+    else if (f === 'link') { const u = prompt('Link address (https://…)'); if (!u) return; const t = s || 'link'; body.setRangeText('[' + t + '](' + u.trim() + ')', a, b, 'end'); }
+    else { body.setRangeText(f + (s || 'text') + f, a, b, 'select'); if (!s) body.setSelectionRange(a + f.length, a + f.length + 4); else body.setSelectionRange(a + f.length, a + f.length + s.length); }
+    body.dispatchEvent(new Event('input')); body.focus(); void out; void ca; void cb;
+  }
+  mq$('.m-tools').addEventListener('mousedown', e => e.preventDefault());
+  mq$('.m-tools').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) mailFmt(b.dataset.f); });
+  $('#mReady').onclick = mailReady; $('#mSend').onclick = mailSend;
+  $('#mBack1').onclick = () => stageShow(1); $('#mBack2').onclick = () => stageShow(2); $('#mBack3').onclick = () => stageShow(1);
+  mq$('#mPrev').onclick = () => stageShow(1);
+  // chips
+  for (const k of ['to', 'cc', 'bcc']) {
+    const box = mq$('#mc-' + k), inp = box.querySelector('input');
+    box.addEventListener('click', e => {
+      const x = e.target.closest('[data-x]'); if (x) { MAIL[k].splice(+x.dataset.x, 1); drawChips(k); mailSave(); drawChecks(); return; }
+      const c = e.target.closest('.m-chip'); if (c) { const i = +c.dataset.i; inp.value = MAIL[k].splice(i, 1)[0]; drawChips(k); inp.focus(); return; }
+      inp.focus();
+    });
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ',' || e.key === ';' || (e.key === ' ' && MAIL_RE.test(inp.value.trim()))) { if (inp.value.trim()) { e.preventDefault(); commitChips(k, inp, true); } }
+      else if (e.key === 'Backspace' && !inp.value && MAIL[k].length) { inp.value = MAIL[k].pop(); drawChips(k); mailSave(); drawChecks(); }
+    });
+    inp.addEventListener('input', () => { if (/[,;\n]/.test(inp.value)) commitChips(k, inp, true); });
+    inp.addEventListener('change', () => commitChips(k, inp, true));
+    inp.addEventListener('blur', () => commitChips(k, inp, true));
+    inp.addEventListener('paste', () => setTimeout(() => commitChips(k, inp, true), 0));
+  }
+  $('#mCcBtn').onclick = () => { MAIL.showCc = !MAIL.showCc; ['cc', 'bcc'].forEach(drawChips); if (MAIL.showCc) mq$('#mc-cc input').focus(); };
+  const subj = mq$('#mSubject'); subj.addEventListener('input', () => { MAIL.subject = subj.value; mailSave(); drawChecks(); drawIdeas(); });
+  mq$('#mIdeas').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (b) { subj.value = MAIL.subject = b.dataset.s; mailSave(); drawChecks(); drawIdeas(); } });
+  mq$('#mSig').onchange = e => { MAIL.sig = e.target.checked; mailSave(); drawPrev(); };
+  mq$('#mSigEdit').onclick = () => { const t = mq$('#mSigText'); t.hidden = !t.hidden; if (!t.hidden) t.focus(); };
+  mq$('#mSigText').addEventListener('input', e => { mailSig = e.target.value; store.set('sig', mailSig); drawPrev(); });
+  // stage 3
+  const cards = mq$('#mCards');
+  cards.addEventListener('input', e => {
+    const k = e.target.dataset.edit; if (!k) return;
+    if (k === 'subject') MAIL.subject = e.target.value; else if (k === 'body') MAIL.body = e.target.value; else MAIL[k] = splitAddrs(e.target.value);
+    mailSave(); drawChecks(); e.target.classList.toggle('bad', k !== 'subject' && k !== 'body' && MAIL[k].some(x => !addrParse(x).ok));
+  });
+  cards.addEventListener('click', e => {
+    const b = e.target.closest('[data-copy]'); if (!b) return; const k = b.dataset.copy;
+    if (k === 'rich') return copyRich(b); if (k === 'plain') return copyText(mailPlain(), b, 'Message copied');
+    copyText(k === 'subject' ? MAIL.subject : mailAddrLine(k), b, k === 'subject' ? 'Subject copied' : 'Recipients copied');
+  });
+  $('#mAll').onclick = e => copyText(mailAll(), e.currentTarget, 'Everything copied');
+  $('#mOpen').onclick = () => { const a = document.createElement('a'); a.href = mailtoUrl(); a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); toast('Opening your mail app…'); };
+  $('#mSaveNote').onclick = () => { const t = '# ' + (MAIL.subject || 'Email draft') + '\n\n' + MAIL.body.trim() + '\n\n#email\n'; closeMail(); newDoc(t); toast('Saved as a note'); };
+  mq$('#mAnim').addEventListener('click', () => { /* animations are short; clicking just keeps focus */ });
+})();
+$('#mailBtn').onclick = () => openMail();
+
+/* ───────── snippets: type ;name then space ───────── */
+const SNIPS = { date: '{date}', time: '{time}', now: '{date}, {time}', sig: '{sig}', shrug: '¯\\_(ツ)_/¯', todo: '- [ ] ', check: '✓', arrow: '→', tm: '™', copy: '©' };
+const snipVal = v => v.replace(/\{date\}/g, new Date().toLocaleDateString(undefined, { dateStyle: 'full' })).replace(/\{time\}/g, new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })).replace(/\{sig\}/g, mailSig.trim() || '(set your signature in the email composer)');
+const allSnips = () => Object.assign({}, SNIPS, store.get('snippets', {}));
+function expandSnippet() {
+  const t = ed.value, a = ed.selectionStart; if (a !== ed.selectionEnd || inCode(t, a)) return false;
+  const m = t.slice(Math.max(0, a - 24), a).match(/(^|\s);([A-Za-z0-9_-]{1,20})$/); if (!m) return false;
+  const v = allSnips()[m[2].toLowerCase()]; if (v === undefined) return false;
+  const out = snipVal(v) + ' '; replaceRange(a - m[2].length - 1, a, out, a - m[2].length - 1 + out.length); return true;
+}
+const SNIP_COMMANDS = [
+  ['Compose email', mod_() + ' ⇧ M', () => openMail()],
+  ['Compose email from this note', '', () => openMail(mailFromNote())],
+  ['Add text snippet…', '', () => { const n = (prompt('Trigger name (letters/numbers), typed as ;name') || '').trim().toLowerCase(); if (!/^[a-z0-9_-]{1,20}$/.test(n)) return n && toast('Use letters, numbers, - or _ (max 20)'); const v = prompt('Text to insert ({date}, {time}, {sig} work too)'); if (v === null || v === '') return; const s = store.get('snippets', {}); s[n] = v; store.set('snippets', s); toast('Snippet ;' + n + ' saved'); }],
+  ['List text snippets', '', () => toast(Object.keys(allSnips()).map(x => ';' + x).join('  '))],
+  ['Delete text snippet…', '', () => { const n = (prompt('Name of the snippet to delete') || '').trim().toLowerCase(), s = store.get('snippets', {}); if (n in s) { delete s[n]; store.set('snippets', s); toast('Deleted ;' + n); } else toast('Only your own snippets can be deleted'); }]
+];
+function paintRanges() {
+  document.querySelectorAll('.set input[type=range]').forEach(r => {
+    const p = (r.value - r.min) / (r.max - r.min) * 100; r.style.setProperty('--p', p + '%');
+    let o = r.parentNode.querySelector('.rv'); if (!o) { o = document.createElement('output'); o.className = 'rv'; r.parentNode.appendChild(o); }
+    const k = r.dataset.k; o.textContent = k === 'lh' ? (+r.value).toFixed(2) : r.value + ' px';
+  });
+}
+document.querySelectorAll('.set input[type=range]').forEach(r => r.addEventListener('input', paintRanges));
+
+/* ───────── version compare + split note ───────── */
+function lineDiff(a, b) {
+  const x = a.split('\n'), y = b.split('\n'), n = x.length, m = y.length;
+  if (n * m > 4e6) return x.map(t => ['-', t]).concat(y.map(t => ['+', t]));
+  const L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = x[i] === y[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) { if (x[i] === y[j]) { out.push([' ', x[i]]); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) out.push(['-', x[i++]]); else out.push(['+', y[j++]]); }
+  while (i < n) out.push(['-', x[i++]]); while (j < m) out.push(['+', y[j++]]);
+  return out;
+}
+function openDiff(snap) {
+  let el = $('#diffModal');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'diffModal'; el.className = 'overlay';
+    el.innerHTML = '<div class="card diff"><div class="set-head"><div><h2>Compare versions</h2><small id="dfSum"></small></div><button class="icon" id="dfClose" aria-label="Close">✕</button></div><div id="dfBody" class="df-body"></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('mousedown', e => { if (e.target === el) el.hidden = true; });
+    el.querySelector('#dfClose').onclick = () => { el.hidden = true; };
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); el.hidden = true; } });
+  }
+  const d = lineDiff(snap.text, ed.value), add = d.filter(x => x[0] === '+').length, del = d.filter(x => x[0] === '-').length;
+  $('#dfSum').textContent = new Date(snap.t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' → now · +' + add + ' / −' + del + ' lines';
+  $('#dfBody').innerHTML = add || del ? d.map(([k, t]) => '<div class="df ' + (k === '+' ? 'ad' : k === '-' ? 'rm' : 'eq') + '"><i>' + (k === ' ' ? '' : k === '+' ? '+' : '−') + '</i><span>' + (esc(t) || '&nbsp;') + '</span></div>').join('') : '<div class="empty">No differences.</div>';
+  el.hidden = false;
+}
+function splitNote() {
+  const sp = splitSections(ed.value); if (sp.secs.length < 2) return toast('Needs at least two sections (headings) to split');
+  flush(); let n = 0;
+  for (const s of sp.secs) { const id = uid(); docs[id] = { id, text: s.text.trim() + '\n', updated: Date.now() - n, history: [] }; n++; }
+  persist(); renderLibrary(); toast('Created ' + n + ' notes from the sections');
+}
+const MORE2_COMMANDS = [['Split note into one note per section', '', splitNote], ['Compare with the latest saved version', '', () => { const h = docs[curId].history; if (!h.length) return toast('No saved versions yet'); openDiff(h[0]); }]];
+
+COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS, ...TOOL_COMMANDS, ...FEAT_COMMANDS, ...SNIP_COMMANDS, ...MORE2_COMMANDS);
 let palSel = 0, palItems = [], palMode = 'cmd';
 function openPalette(mode, prefill) {
   palMode = mode === 'doc' ? 'doc' : 'cmd'; palSel = 0;
@@ -2691,7 +2987,7 @@ $('#palInput').addEventListener('keydown', e => {
 });
 $('#palList').addEventListener('click', e => { const c = e.target.closest('.cmd'); if (c) runPalette(+c.dataset.i); });
 $('#palette').addEventListener('mousedown', e => { if (e.target.id === 'palette') closePalette(); });
-function openSettings() { syncSettingsForm(); $('#settings').hidden = false; }
+function openSettings() { syncSettingsForm(); if (typeof paintRanges === "function") paintRanges(); $('#settings').hidden = false; }
 function closeSettings() { $('#settings').hidden = true; ed.focus(); }
 $('#settings').addEventListener('mousedown', e => { if (e.target.id === 'settings') closeSettings(); });
 $('#setClose').onclick = closeSettings;
@@ -2704,6 +3000,7 @@ ed.addEventListener('input', () => {
 ed.addEventListener('keydown', e => {
   document.body.classList.add('typing');
   if (popKey(e)) return;
+  if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && expandSnippet()) { e.preventDefault(); return; }
   if (timer && timer.hard && (e.key === 'Backspace' || e.key === 'Delete' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z'))) { e.preventDefault(); toast('Sprint: no deleting until the timer ends'); return; }
   if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter') { e.preventDefault(); ctrlEnter(); return; }
   if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); moveLines(e.key === 'ArrowUp' ? -1 : 1); return; }
@@ -2748,7 +3045,7 @@ $('#preview').addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   const m = e.metaKey || e.ctrlKey; const k = e.key.toLowerCase();
   if (e.key === 'Escape') {
-    if (!$('#studio').hidden) return;
+    if (!$('#studio').hidden || !$('#mail').hidden) return;
     if ($('#cards') && !$('#cards').hidden) return;
     if (document.body.classList.contains('reading')) return toggleReading(false);
     if (!$('#tplModal')?.hidden && $('#tplModal')) { $('#tplModal').hidden = true; ed.focus(); return; }
@@ -2772,6 +3069,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'e' && e.shiftKey) run(openStudio);
   else if (k === 'o' && e.shiftKey) run(openCards);
   else if (k === 'd' && e.shiftKey) run(openDaily);
+  else if (k === 'm' && e.shiftKey) run(() => openMail());
   else if (k === '/') run(toggleComment);
   else if (k === 'enter' && e.shiftKey) run(toggleFullscreen);
   else if (k === 'f' && e.shiftKey) run(cycleFocus);
@@ -2815,7 +3113,7 @@ addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragN = 0; if (!$('#studio').hidden) return; document.body.classList.remove('drop'); if (e.dataTransfer?.files?.length) handleFiles([...e.dataTransfer.files]); });
 
 // desktop wrapper hooks (Electron menu)
-window.wren = { openDaily, openPresent, toggleReading, formatTable, setTheme, openCards, openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { splitSlides, snip, THEMES, styleScan, applyStyleFix, fixAllStyle, tagsOf, matchDoc, splitSections, CARDS, moveCard, applyCards, renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
+window.wren = { openMail, openDaily, openPresent, toggleReading, formatTable, setTheme, openCards, openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { lineDiff, splitNote, paintRanges, MAIL, mdToPlain, subjectIdeas, addrParse, splitAddrs, mailChecks, mailAll, mailtoUrl, mailPlain, mailRich, expandSnippet, mailReady, mailSend, stageShow, splitSlides, snip, THEMES, styleScan, applyStyleFix, fixAllStyle, tagsOf, matchDoc, splitSections, CARDS, moveCard, applyCards, renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
 
 /* ───────── boot ───────── */
 document.body.classList.toggle('nosb', !S.sidebar || innerWidth <= 820);
