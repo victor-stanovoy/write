@@ -2823,29 +2823,22 @@ function stageShow(n) {
 const sleep = ms => new Promise(r => setTimeout(r, reduceMotion() ? Math.min(ms, 60) : ms));
 let animSkip = null;
 const sleepS = ms => new Promise(r => { const t = setTimeout(r, reduceMotion() ? Math.min(ms, 60) : ms); animSkip = () => { clearTimeout(t); r(); }; });
-function burst(host, n, spread, size) {
-  const box = document.createElement('div'); box.className = 'bursts'; const cols = ['var(--acc)', '#ff9f0a', '#30d158', '#bf5af2', '#ff375f', '#64d2ff'];
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2, d = spread * (.45 + Math.random() * .55), p = document.createElement('i');
-    p.style.cssText = '--x:' + Math.cos(a) * d + 'px;--y:' + (Math.sin(a) * d - spread * .2) + 'px;--r:' + (Math.random() * 540 - 270) + 'deg;--s:' + (size * (.6 + Math.random() * .8)) + 'px;background:' + cols[i % cols.length] + ';animation-delay:' + (Math.random() * .12) + 's' + (i % 3 === 0 ? ';border-radius:50%' : '');
-    box.appendChild(p);
-  }
-  host.appendChild(box); setTimeout(() => box.remove(), 1600);
+function burst(host) {
+  const box = document.createElement('div'); box.className = 'bursts'; box.innerHTML = '<i></i><i></i><i></i>'; host.appendChild(box); setTimeout(() => box.remove(), 1700);
 }
 async function playAnim(kind) {
   const a = mq$('#mAnim'); a.hidden = false; a.className = 'run ' + kind; a.onclick = () => animSkip && animSkip();
   const cap = t => { const c = a.querySelector('.cap'); if (c) { c.classList.remove('swap'); void c.offsetWidth; c.textContent = t; c.classList.add('swap'); } };
   if (kind === 'seal') {
-    const lines = MAIL.body.split('\n').filter(x => x.trim()).slice(0, 7).map(x => '<p>' + esc(x.replace(/[#*_`>]/g, '').slice(0, 40)) + '</p>').join('') || '<p>…</p>';
-    const pg = n => '<div class="pg" style="transform:translateY(-' + n + 'px)"><h6>' + esc((MAIL.subject || 'Your message').slice(0, 30)) + '</h6>' + lines + '</div>';
-    a.innerHTML = '<div class="scene"><div class="env"><div class="e-back"></div><div class="fold"><div class="fold-in"><div class="f-p f-t">' + pg(0) + '</div><div class="f-p f-m">' + pg(50) + '</div><div class="f-p f-b">' + pg(100) + '</div></div></div><div class="e-front"></div><div class="e-flap"></div><div class="e-seal"><b>✓</b></div></div><div class="cap swap">Folding your message…</div></div>';
-    await sleepS(1700); cap('Tucking it in…'); await sleepS(1000); cap('Sealing…'); await sleepS(750);
-    burst(a.querySelector('.env'), 16, 150, 7); cap('Ready'); await sleepS(950);
+    const lines = MAIL.body.split('\n').filter(x => x.trim()).slice(0, 6).map(() => '<p style="width:' + (60 + Math.floor(Math.random() * 40)) + '%"></p>').join('') || '<p></p>';
+    a.innerHTML = '<div class="scene"><div class="sl"><div class="sl-back"></div><div class="sl-paper"><h6>' + esc((MAIL.subject || 'Your message').slice(0, 34)) + '</h6>' + lines + '</div><div class="sl-front"></div><div class="sl-flap"></div><svg class="sl-ck" viewBox="0 0 56 56"><circle cx="28" cy="28" r="28"/><path d="M17 29l8 8 14-17"/></svg></div><div class="cap swap">Getting your message ready…</div></div>';
+    await sleepS(1300); cap('Tucking it in'); await sleepS(1000); cap('Sealing'); await sleepS(750);
+    burst(a.querySelector('.sl'), 0); cap('Ready'); await sleepS(1000);
   } else {
     const to = MAIL.to.length ? addrParse(MAIL.to[0]) : { name: '', email: 'recipient' };
     const more = MAIL.to.length > 1 ? ' +' + (MAIL.to.length - 1) : '';
-    a.innerHTML = '<div class="scene"><div class="se-wrap"><div class="se-lines"></div><div class="sendenv"><div class="se-flap"></div><div class="se-addr"><small>To</small><b>' + esc((to.name || to.email).slice(0, 26)) + more + '</b></div><div class="se-stamp"></div></div></div><div class="cap swap">Packaging your email…</div></div>';
-    await sleepS(900); cap('Whoosh'); burst(a.querySelector('.se-wrap'), 18, 120, 6); await sleepS(1500);
+    a.innerHTML = '<div class="scene"><div class="se-wrap"><div class="sendenv"><div class="se-flap"></div><div class="se-addr"><small>To</small><b>' + esc((to.name || to.email).slice(0, 26)) + more + '</b></div><div class="se-stamp"></div></div></div><div class="cap swap">Addressing your email…</div></div>';
+    await sleepS(900); cap('On its way'); await sleepS(1100); burst(a.querySelector('.se-wrap'), 0); cap('Done'); await sleepS(700);
   }
   animSkip = null; a.hidden = true; a.innerHTML = ''; a.className = ''; a.onclick = null;
 }
@@ -2858,7 +2851,7 @@ async function mailReady() {
   stageShow(2); mailBusy = false;
 }
 async function mailSend() {
-  if (mailBusy) return; mailBusy = true; rememberContacts(); mailSave(); await playAnim('send'); stageShow(3); mailBusy = false; setTimeout(() => burst(mq$('.m-ok'), 22, 150, 7), 350);
+  if (mailBusy) return; mailBusy = true; rememberContacts(); mailSave(); await playAnim('send'); stageShow(3); mailBusy = false; setTimeout(() => burst(mq$('.m-ok')), 350);
 }
 function openMail(prefill) {
   if (prefill) { Object.assign(MAIL, { body: prefill.body || '', subject: prefill.subject || '', to: [], cc: [], bcc: [] }); mailSave(); }
