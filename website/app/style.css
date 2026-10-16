@@ -648,3 +648,10 @@ body.ultra #ultraHud{display:flex}#ultraHud.on{opacity:1;transform:translate(-50
 .mu-msg.ok{color:var(--muted);font-size:11.5px;margin-top:6px}.mu-msg.ok:empty{display:none}
 /* footnotes */
 .md sup.fnref a{text-decoration:none;color:var(--acc);font-weight:600;padding:0 1px}.md .footnotes{font-size:.9em;color:var(--muted)}.md .footnotes li{margin:.4em 0}.md .footnotes a{text-decoration:none;color:var(--acc)}
+
+/* v2 polish: calmer top bar on small screens */
+@media (max-width:700px){
+  #topbar,.topbar{gap:2px}
+  #topbar button#mailBtn,#topbar button#studioBtn,#topbar button#musicBtn,#topbar button#researchBtn,#topbar button#exportBtn,#topbar button#fsBtn,#topbar button#themeBtn{display:none}
+}
+@media (max-width:1000px){#topbar button#fsBtn,#topbar button#themeBtn{display:none}}

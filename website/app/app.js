@@ -16,13 +16,14 @@ const today = () => new Date().toISOString().slice(0, 10);
 /* ───────── settings ───────── */
 const defaults = {
   theme: 'auto', accent: '#0a84ff', font: 'mono', size: 18, lh: 1.7, width: 680,
-  focus: 'off', typewriter: true, spell: false, dailyGoal: 500, sidebar: true, preview: false,
+  focus: 'off', typewriter: false, spell: false, dailyGoal: 500, sidebar: true, preview: false,
   smart: true, autopair: true, fillers: false, style: false, keysound: false, pvTheme: 'standard',
   pos: { noun: false, verb: false, adj: false, adv: false, conj: false }
 };
 const S = Object.assign({}, defaults, store.get('settings', {}));
 S.pos = Object.assign({}, defaults.pos, S.pos || {});
 if (S.accent === '#10a5c8') S.accent = defaults.accent;
+if (S.v !== 2) { S.v = 2; S.typewriter = false; try { store.set('settings', S); } catch (e) {} }
 const THEMES = [["light", "Light", "#ffffff", "#1d1d1f", 0], ["paper", "Paper", "#fbf9f4", "#2a2622", 0], ["sepia", "Sepia", "#f4ecd8", "#433422", 0], ["rose", "Rose", "#fff8f8", "#3b2226", 0], ["lavender", "Lavender", "#faf8ff", "#26223a", 0], ["mint", "Mint", "#f5faf7", "#1f2d24", 0], ["solar", "Solar", "#fdf6e3", "#586e75", 0], ["dark", "Dark", "#1c1c1e", "#f2f2f7", 1], ["graphite", "Graphite", "#26272b", "#e4e4e8", 1], ["midnight", "Midnight", "#0e1524", "#dbe4f5", 1], ["nord", "Nord", "#2e3440", "#e5e9f0", 1], ["plum", "Plum", "#1e1a2b", "#e9e4f7", 1], ["ink", "Ink", "#000000", "#f5f5f7", 1]];
 const FONTS = {
   mono: 'ui-monospace,"SF Mono","JetBrains Mono","IBM Plex Mono",Menlo,Consolas,"Liberation Mono",monospace',
@@ -753,7 +754,7 @@ function applySettings() {
   const th = S.theme === 'auto' ? (mq.matches ? 'dark' : 'light') : S.theme;
   document.body.dataset.theme = th;
   const meta = $('meta[name=theme-color]'); if (meta) meta.content = (THEMES.find(x => x[0] === th) || THEMES[0])[2];
-  r.setProperty('--pad-top', S.typewriter ? '38vh' : '56px'); r.setProperty('--pad-bot', S.typewriter ? '50vh' : '30vh');
+  r.setProperty('--pad-top', S.typewriter ? '38vh' : '48px'); r.setProperty('--pad-bot', S.typewriter ? '50vh' : '30vh');
   document.body.dataset.prop = (S.font === 'serif' || S.font === 'sans') ? '1' : '';
   ed.spellcheck = !!S.spell;
   if (!$('#preview').hidden && typeof updatePreview === 'function') updatePreview();
@@ -2512,7 +2513,7 @@ function libBar(q) {
   bar.innerHTML = folders.map((f, i) => '<span class="chip fold' + (f.q.toLowerCase() === q ? ' on' : '') + '" data-q="' + attr(f.q) + '" title="' + attr(f.q) + '">📁 ' + esc(f.name) + ' <i data-del="' + i + '" title="Delete folder">✕</i></span>').join('') +
     top.map(([t, n]) => '<span class="chip tg' + (q === '#' + t ? ' on' : '') + '" data-q="#' + attr(t) + '">#' + esc(t) + ' <small>' + n + '</small></span>').join('') +
     (raw && !folders.some(f => f.q === raw) ? '<span class="chip save" data-save="1">＋ Save as smart folder</span>' : '') + (raw ? '<span class="chip clr" data-clear="1">Clear</span>' : '');
-  if (!bar.innerHTML) bar.innerHTML = '<span class="hint">Add #tags to notes, or search with older:7, words&gt;500, has:image, pinned…</span>';
+  if (!bar.innerHTML) bar.innerHTML = '<span class="hint">Tip: add #tags to your notes to group them.</span>';
   bar.onclick = e => {
     const del = e.target.closest('[data-del]'); if (del) { e.stopPropagation(); folders.splice(+del.dataset.del, 1); store.set('folders', folders); return renderLibrary(); }
     if (e.target.closest('[data-clear]')) { $('#search').value = ''; return renderLibrary(); }
