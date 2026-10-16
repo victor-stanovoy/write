@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src 'none'; object-src 'none'; frame-src 'self' about: https://open.spotify.com; connect-src 'self' https://*.wikipedia.org https://api.dictionaryapi.dev https://api.datamuse.com; worker-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src 'none'; object-src 'none'; frame-src 'self' about: https://open.spotify.com https://www.youtube-nocookie.com; connect-src 'self' https://*.wikipedia.org https://api.dictionaryapi.dev https://api.datamuse.com; worker-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Wren — a focused Markdown writer</title>
 <meta name="description" content="Wren is a calm, distraction-free Markdown writing app with focus mode, syntax highlighting, live preview and one-click export.">
@@ -58,6 +58,7 @@
       <button id="researchBtn" class="icon" title="Research on Wikipedia (Ctrl/⌘ Shift L)" aria-label="Research on Wikipedia"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 4 5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V5c-3-.5-6 0-8 1.5z"/><path d="M12 6.5v13"/></svg></button>
       <button id="findBtn" class="icon" title="Find & replace (Ctrl/⌘ F)" aria-label="Find"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
       <button id="exportBtn" class="icon" title="Export" aria-label="Export"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3.5"/><path d="M8 7l4-3.5L16 7"/><path d="M5 11.5v6A2.5 2.5 0 0 0 7.500 20h9a2.5 2.5 0 0 0 2.500-2.500v-6"/></svg></button>
+      <button id="ultraBtn" class="icon" title="Ultra focus (Ctrl/⌘ Shift U)" aria-label="Ultra focus"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></svg></button>
       <button id="fsBtn" class="icon" title="Full screen (Ctrl/⌘ Shift Enter)" aria-label="Full screen"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button id="themeBtn" class="icon" title="Switch theme" aria-label="Switch theme"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.500"/><path d="M12 3.500v17a8.500 8.500 0 0 0 0-17z" fill="currentColor"/></svg></button>
       <button id="settingsBtn" class="icon" title="Settings (Ctrl/⌘ ,)" aria-label="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
@@ -97,11 +98,12 @@
     </div>
 
     <div id="music" hidden>
-      <div class="mu-head"><b>Music</b><small>Spotify · audio only, videos blocked</small><div class="spacer"></div><button id="muSize" class="icon" title="Expand or collapse the playlist" aria-label="Expand or collapse">⤢</button><button id="muClose" class="icon" title="Close and stop the music" aria-label="Close and stop the music">✕</button></div>
+      <div class="mu-head"><b>Music</b><small>Spotify or YouTube link</small><div class="spacer"></div><button id="muSize" class="icon" title="Expand or collapse the playlist" aria-label="Expand or collapse">⤢</button><button id="muClose" class="icon" title="Close and stop the music" aria-label="Close and stop the music">✕</button></div>
       <div id="muPresets" class="chips"></div>
-      <div class="mu-add"><input id="muInput" placeholder="Paste a Spotify track, album, playlist or artist link" aria-label="Spotify link"><button id="muGo">Play</button></div>
+      <div class="mu-add"><input id="muInput" placeholder="Paste a Spotify or YouTube link" aria-label="Spotify link"><button id="muGo">Play</button></div>
       <div id="muMsg" class="mu-msg" role="status"></div>
       <div id="muFrame"></div>
+      <div id="muNote" class="mu-msg ok" hidden>YouTube’s rules keep its player visible, so it can’t be audio only. Spotify links stay audio only.</div>
     </div>
     <footer id="status">
       <span id="stWords">0 words</span>
@@ -111,6 +113,7 @@
       <span id="stSel"></span>
       <span id="stTimer" hidden title="Click to stop the timer"></span>
       <div class="spacer"></div>
+      <span id="stTarget" hidden title="Word target for this note. Click to change."></span>
       <span id="stGoal" title="Daily word goal"></span>
       <span id="stSaved">Saved</span>
     </footer>
@@ -152,6 +155,7 @@
       <label class="chk"><input type="checkbox" data-k="smart"> Smart typography (“ ” ’ — …)</label>
       <label class="chk"><input type="checkbox" data-k="autopair"> Auto-close brackets &amp; quotes</label>
       <label class="chk"><input type="checkbox" data-k="style"> Style check (underline clichés, wordy phrases, passive voice)</label>
+      <label class="chk"><input type="checkbox" data-k="keysound"> Typewriter key sounds</label>
       <label class="chk"><input type="checkbox" data-k="fillers"> Highlight weak words (very, just…)</label>
       <label>Daily word goal <input type="number" min="0" step="50" data-k="dailyGoal"></label>
     </div>
@@ -179,6 +183,7 @@
       <li><kbd>Alt ↑ ↓</kbd> Move line</li>
       <li><kbd>Ctrl/⌘ Shift M</kbd> Email composer</li>
       <li><kbd>;name</kbd> + space: text snippet</li>
+      <li><kbd>Ctrl/⌘ Shift U</kbd> Ultra focus</li>
       <li><kbd>Ctrl/⌘ Shift D</kbd> Today’s daily note</li>
       <li><kbd>Ctrl/⌘ Shift O</kbd> Rearrange sections</li>
       <li><kbd>Ctrl/⌘ Shift E</kbd> Studio visual editor</li>

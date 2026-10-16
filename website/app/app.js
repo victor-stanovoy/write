@@ -17,7 +17,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const defaults = {
   theme: 'auto', accent: '#0a84ff', font: 'mono', size: 18, lh: 1.7, width: 680,
   focus: 'off', typewriter: true, spell: false, dailyGoal: 500, sidebar: true, preview: false,
-  smart: true, autopair: true, fillers: false, style: false, pvTheme: 'standard',
+  smart: true, autopair: true, fillers: false, style: false, keysound: false, pvTheme: 'standard',
   pos: { noun: false, verb: false, adj: false, adv: false, conj: false }
 };
 const S = Object.assign({}, defaults, store.get('settings', {}));
@@ -181,7 +181,7 @@ let posWrap = function (text) {
 };
 
 /* ───────── markdown highlighting (editor backdrop) ───────── */
-const INL = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_|`[^`\n]+`|!?\[[^\]\n]*\]\([^)\n]*\)|\[\[[^\]\n]+\]\]|~~[^~\n]+~~|<\/?(?:span|mark)(?: style="[^"\n]*")?>|(?<![\w&#\/="'])#[A-Za-z\u00C0-\u024F][\w\/-]*|https?:\/\/[^\s)]+)/g;
+const INL = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_|`[^`\n]+`|!?\[[^\]\n]*\]\([^)\n]*\)|\[\^[^\]\s]+\]|\[\[[^\]\n]+\]\]|~~[^~\n]+~~|<\/?(?:span|mark)(?: style="[^"\n]*")?>|(?<![\w&#\/="'])#[A-Za-z\u00C0-\u024F][\w\/-]*|https?:\/\/[^\s)]+)/g;
 function inl(text) {
   let out = '', last = 0, m;
   INL.lastIndex = 0;
@@ -310,6 +310,7 @@ function updateStatus() {
   lastWords = w;
   const done = stats[today()] || 0;
   $('#stGoal').textContent = S.dailyGoal ? 'Today ' + done + ' / ' + S.dailyGoal + (done >= S.dailyGoal ? ' ✓' : '') + streakText() : '';
+  { const d = docs[curId], el = $('#stTarget'); if (d && d.target) { const p = Math.min(1, w / d.target); el.hidden = false; el.innerHTML = '<span class="tbar"><i style="width:' + (p * 100) + '%"></i></span> ' + w + ' / ' + d.target + (w >= d.target ? ' ✓' : ''); } else el.hidden = true; }
   $('#docTitle').textContent = titleOf({ text: t });
   document.title = titleOf({ text: t }) + ' — Wren';
 }
@@ -531,6 +532,7 @@ function onTab(e) {
 
 /* ───────── markdown → HTML ───────── */
 const slug = s => s.toLowerCase().replace(/<[^>]+>/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-');
+const FN = { defs: {}, order: [] };
 function inlineMd(s) {
   const codes = [], wikis = [], tags = [];
   s = s.replace(/\\([\\`*_{}\[\]()#+\-.!~<>|])/g, (_, c) => '\u0002' + c.charCodeAt(0) + '\u0002');
@@ -539,6 +541,7 @@ function inlineMd(s) {
     .replace(/<mark style="background:(#[0-9a-fA-F]{3,8})">/g, (_, c) => { tags.push('<mark style="background:' + c + '">'); return '\u0003' + (tags.length - 1) + '\u0003'; })
     .replace(/<\/(span|mark)>/g, (_, t) => { tags.push('</' + t + '>'); return '\u0003' + (tags.length - 1) + '\u0003'; });
   s = esc(s);
+  s = s.replace(/\[\^([^\]\s]+)\]/g, (m, id) => { id = unesc(id); if (!(id in FN.defs)) return m; let i = FN.order.indexOf(id); if (i < 0) i = FN.order.push(id) - 1; const q = id.replace(/[^\w-]/g, '_'); tags.push('<sup class="fnref"><a href="#fn-' + q + '" id="fnr-' + q + '">' + (i + 1) + '</a></sup>'); return '\u0003' + (tags.length - 1) + '\u0003'; });
   s = s.replace(/\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g, (_, t, al) => { wikis.push('<a class="wiki' + (hasDoc(unesc(t)) ? '' : ' miss') + '" data-wiki="' + t.trim().replace(/"/g, '&quot;') + '" href="#wiki">' + (al || t) + '</a>'); return '\u0001' + (wikis.length - 1) + '\u0001'; });
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, alt, src, ti) => isVideoUrl(unesc(src)) ? '<span class="blocked">🚫 video blocked</span>' : '<img alt="' + alt + '" src="' + (/^img:/.test(src) ? (imgData(src.slice(4)) || '') : safeUrl(src)) + '"' + (ti ? ' title="' + ti + '"' : '') + '>');
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, tx, href) => '<a href="' + safeUrl(href) + '" target="_blank" rel="noopener">' + tx + '</a>');
@@ -566,7 +569,8 @@ function buildList(items, start) {
   return [html + '</' + (ordered ? 'ol' : 'ul') + '>', i];
 }
 function renderMarkdown(src, depth = 0) {
-  const lines = src.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?-->/g, '').split('\n');
+  let lines = src.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?-->/g, '').split('\n');
+  if (depth === 0) { FN.defs = {}; FN.order = []; lines = lines.filter(l => { const m = l.match(/^\[\^([^\]\s]+)\]:\s*(.*)$/); if (m) { FN.defs[m[1]] = m[2]; return false; } return true; }); }
   const out = []; let i = 0;
   const isCmt = l => /^\s*\/\/(\s|$)/.test(l);
   const isBlockStart = l => isCmt(l) || /^\s*!\[\[[^\]\n]+\]\]\s*$/.test(l) || /^(#{1,6}\s|\s*>|\s*```|\s*~~~|\s*([-*_])(\s*\2){2,}\s*$|\s*([-*+]|\d+[.)])\s)/.test(l);
@@ -609,6 +613,7 @@ function renderMarkdown(src, depth = 0) {
     while (i < lines.length && lines[i].trim() && !isBlockStart(lines[i])) buf.push(lines[i++]);
     out.push('<p>' + inlineMd(buf.join('\n')).replace(/\n/g, '<br>') + '</p>');
   }
+  if (depth === 0 && FN.order.length) { const o = FN.order.slice(); out.push('<section class="footnotes"><hr><ol>' + o.map(id => { const q = id.replace(/[^\w-]/g, '_'); return '<li id="fn-' + q + '">' + inlineMd(FN.defs[id]) + ' <a href="#fnr-' + q + '">↩</a></li>'; }).join('') + '</ol></section>'); }
   return out.join('\n');
 }
 
@@ -1875,40 +1880,62 @@ const RESEARCH_COMMANDS = [
 const VIDEO_RE = /(\.(mp4|m4v|mov|webm|ogv|avi|mkv|mpe?g|m3u8)([?#]|$))|((^|\/\/)(www\.|m\.)?(youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|twitch\.tv|dailymotion\.com)\/)/i;
 const isVideoUrl = u => VIDEO_RE.test((u || '').trim());
 
-/* ───────── music: Spotify embed only (audio, never video) ───────── */
+/* ───────── music: Spotify or YouTube links, played in the official embedded players ───────── */
 const M_PRESETS = [['Deep Focus', 'playlist', '37i9dQZF1DWZeKCadgRdKQ'], ['Peaceful Piano', 'playlist', '37i9dQZF1DX4sWSpwq3LiO'], ['lofi beats', 'playlist', '37i9dQZF1DWWQRwui0ExPn'], ['Brain Food', 'playlist', '37i9dQZF1DWXLeA8Omikj7'], ['Instrumental Study', 'playlist', '37i9dQZF1DX9sIqqvKsjG8']];
 const M = { cur: store.get('music', null), big: false };
+const YT_ID = /^[A-Za-z0-9_-]{11}$/, YT_LIST = /^[A-Za-z0-9_-]{10,64}$/;
+function parseYouTube(u) {
+  let url; try { url = new URL(/^https?:\/\//i.test(u) ? u : 'https://' + u); } catch (e) { return null; }
+  const h = url.hostname.toLowerCase().replace(/^(www\.|m\.|music\.)/, ''); let id = '', list = url.searchParams.get('list') || '';
+  if (h === 'youtu.be') id = url.pathname.slice(1).split('/')[0];
+  else if (h === 'youtube.com' || h === 'youtube-nocookie.com') {
+    if (url.pathname === '/watch') id = url.searchParams.get('v') || '';
+    else { const m = url.pathname.match(/^\/(?:embed|shorts|live|v)\/([^/?]+)/); if (m && m[1] !== 'videoseries') id = m[1]; }
+  } else return null;
+  if (id && !YT_ID.test(id)) id = ''; if (list && !YT_LIST.test(list)) list = '';
+  if (!id && !list) return { err: 'That YouTube link has no video or playlist in it.' };
+  return { type: 'yt', id, list };
+}
 function parseMusic(u) {
   u = (u || '').trim();
-  if (!u) return { err: 'Paste a Spotify link first.' };
-  if (/(youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|twitch\.tv|netflix\.com|dailymotion\.com)/i.test(u)) return { err: 'Video sites are blocked. Wren only plays music from Spotify.' };
+  if (!u) return { err: 'Paste a Spotify or YouTube link first.' };
+  const yt = parseYouTube(u); if (yt) return yt;
+  if (/(vimeo\.com|tiktok\.com|twitch\.tv|netflix\.com|dailymotion\.com)/i.test(u)) return { err: 'That video site is blocked. Wren plays music from Spotify and YouTube links.' };
   let m = u.match(/^spotify:(track|album|playlist|artist):([A-Za-z0-9]{22})$/);
   if (!m) m = u.match(/^https:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(track|album|playlist|artist)\/([A-Za-z0-9]{22})(?:[?#].*)?$/);
   if (m) return { type: m[1], id: m[2] };
   if (/spotify/i.test(u) && /(episode|show)/i.test(u)) return { err: 'Podcasts and shows are blocked because they can include video. Use a track, album, playlist or artist link.' };
-  return { err: 'That doesn’t look like a Spotify track, album, playlist or artist link.' };
+  return { err: 'That doesn’t look like a Spotify or YouTube link.' };
 }
-function playMusic(type, id) {
-  const h = (type === 'track' || !M.big) ? 152 : 352;
-  $('#muFrame').innerHTML = '<iframe title="Spotify player" src="https://open.spotify.com/embed/' + type + '/' + id + '?utm_source=generator" width="100%" height="' + h + '" frameborder="0" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms" referrerpolicy="strict-origin-when-cross-origin"></iframe>';
-  M.cur = { type, id }; store.set('music', M.cur); $('#muMsg').textContent = '';
+function playMusic(type, id, list) {
+  const SB = 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation';
+  if (type === 'yt') {
+    const src = id ? 'https://www.youtube-nocookie.com/embed/' + id + '?rel=0&playsinline=1' + (list ? '&list=' + list : '') : 'https://www.youtube-nocookie.com/embed/videoseries?rel=0&playsinline=1&list=' + list;
+    $('#muFrame').innerHTML = '<iframe class="yt" title="YouTube player" src="' + src + '" allow="autoplay; encrypted-media; picture-in-picture" sandbox="' + SB + '" referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+    $('#muNote').hidden = false; M.cur = { type: 'yt', id, list: list || '' };
+  } else {
+    const h = (type === 'track' || !M.big) ? 152 : 352;
+    $('#muFrame').innerHTML = '<iframe title="Spotify player" src="https://open.spotify.com/embed/' + type + '/' + id + '?utm_source=generator" width="100%" height="' + h + '" frameborder="0" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms" referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+    $('#muNote').hidden = true; M.cur = { type, id };
+  }
+  store.set('music', M.cur); $('#muMsg').textContent = '';
 }
 function openMusic() {
   $('#music').hidden = false; $('#musicBtn').style.background = 'var(--panel)';
   if (!$('#muPresets').children.length) $('#muPresets').innerHTML = M_PRESETS.map(p => '<button class="chip" data-t="' + p[1] + '" data-id="' + p[2] + '">' + esc(p[0]) + '</button>').join('');
-  if (M.cur && !$('#muFrame').children.length) playMusic(M.cur.type, M.cur.id);
+  if (M.cur && !$('#muFrame').children.length) playMusic(M.cur.type, M.cur.id, M.cur.list);
 }
-function closeMusic() { $('#muFrame').innerHTML = ''; $('#music').hidden = true; $('#musicBtn').style.background = ''; ed.focus(); }
+function closeMusic() { $('#muFrame').innerHTML = ''; $('#muNote').hidden = true; $('#music').hidden = true; $('#musicBtn').style.background = ''; ed.focus(); }
 function toggleMusic() { if ($('#music').hidden) openMusic(); else closeMusic(); }
 function submitMusic() {
   const r = parseMusic($('#muInput').value);
   if (r.err) { $('#muMsg').textContent = r.err; return false; }
-  playMusic(r.type, r.id); $('#muInput').value = ''; return true;
+  playMusic(r.type, r.id, r.list); $('#muInput').value = ''; return true;
 }
 $('#musicBtn').onclick = toggleMusic; $('#muClose').onclick = closeMusic; $('#muGo').onclick = submitMusic;
 $('#muInput').addEventListener('keydown', e => { if (e.key === 'Enter') submitMusic(); else if (e.key === 'Escape') { e.stopPropagation(); ed.focus(); } });
 $('#muPresets').addEventListener('click', e => { const b = e.target.closest('[data-id]'); if (b) playMusic(b.dataset.t, b.dataset.id); });
-$('#muSize').onclick = () => { M.big = !M.big; const f = $('#muFrame iframe'); if (f && M.cur && M.cur.type !== 'track') f.height = M.big ? 352 : 152; };
+$('#muSize').onclick = () => { M.big = !M.big; const f = $('#muFrame iframe'); if (f && M.cur && M.cur.type !== 'track' && M.cur.type !== 'yt') f.height = M.big ? 352 : 152; };
 
 /* ───────── dictionary + thesaurus (research pane sources) ───────── */
 async function jget(url) {
@@ -2058,7 +2085,7 @@ function renderEmbed(title, depth) {
   const prev = imgScope; imgScope = d;
   try { return '<div class="embed"><div class="embed-t">' + esc(titleOf({ text: textOf(d) })) + '</div>' + renderMarkdown(textOf(d).replace(/^\s*#[^\n]*\n/, ''), depth + 1) + '</div>'; } finally { imgScope = prev; }
 }
-const EMBED_CSS = '.embed{border-left:3px solid #bbb;padding:.2em 1em;margin:1em 0;background:#f7f7f5;border-radius:0 8px 8px 0}.embed-t{font:600 12px sans-serif;text-transform:uppercase;letter-spacing:.06em;color:#777}.blocked{color:#888;font-style:italic}';
+const EMBED_CSS = '.fnref a{text-decoration:none}.footnotes{font-size:.9em;color:#555}.footnotes hr{margin:2em 0 1em}.embed{border-left:3px solid #bbb;padding:.2em 1em;margin:1em 0;background:#f7f7f5;border-radius:0 8px 8px 0}.embed-t{font:600 12px sans-serif;text-transform:uppercase;letter-spacing:.06em;color:#777}.blocked{color:#888;font-style:italic}';
 const THEME_CSS = {
   standard: '',
   manuscript: 'body{font:18px/2 "Times New Roman",Times,serif;max-width:640px}h1{text-align:center;font-weight:400;letter-spacing:.08em;text-transform:uppercase}h2,h3{font-weight:400;font-style:italic}p{margin:0;text-indent:1.6em}h1+p,h2+p,h3+p,hr+p,blockquote+p{text-indent:0}',
@@ -2724,7 +2751,7 @@ async function copyText(text, btn, label) {
   let ok = false; try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { try { const t = document.createElement('textarea'); t.value = text; t.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(t); t.select(); ok = document.execCommand('copy'); t.remove(); } catch (_) { } }
   flashCopied(btn, ok, label); return ok;
 }
-function flashCopied(btn, ok, label) { if (btn) { const o = btn.dataset.l || (btn.dataset.l = btn.textContent); btn.textContent = ok ? '✓ Copied' : 'Copy failed'; btn.classList.toggle('ok', ok); clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = o; btn.classList.remove('ok'); }, 1600); } toast(ok ? (label || 'Copied') : 'Copy is blocked here — select the text and press Ctrl/⌘ C'); }
+function flashCopied(btn, ok, label) { if (btn) { const o = btn.dataset.l || (btn.dataset.l = btn.textContent); btn.textContent = ok ? '✓ Copied' : 'Copy failed'; btn.classList.toggle('ok', ok); btn.classList.remove('copied'); void btn.offsetWidth; if (ok) btn.classList.add('copied'); clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = o; btn.classList.remove('ok'); }, 1600); } toast(ok ? (label || 'Copied') : 'Copy is blocked here — select the text and press Ctrl/⌘ C'); }
 async function copyRich(btn) {
   try { await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([mailRich()], { type: 'text/html' }), 'text/plain': new Blob([mailPlain()], { type: 'text/plain' }) })]); flashCopied(btn, true, 'Formatted message copied'); }
   catch (e) { copyText(mailPlain(), btn, 'Copied as plain text'); }
@@ -2786,23 +2813,40 @@ function syncFields() {
 }
 function stageShow(n) {
   mailStep = n; const st = mq$('.m-stage'); st.dataset.s = n;
+  $('#mail').querySelectorAll('.m-steps b').forEach((x, i) => x.classList.toggle('on', n > i + 1));
   $('#mail').querySelectorAll('.m-steps span').forEach(s => { s.classList.toggle('on', +s.dataset.s === n); s.classList.toggle('past', +s.dataset.s < n); });
   if (n === 1) { mailCount(); setTimeout(() => mq$('#mBody').focus(), 60); }
   if (n === 2) { syncFields(); drawPrev(); const i = MAIL.to.length ? mq$('#mSubject') : mq$('#mc-to input'); setTimeout(() => i.focus(), 80); }
   if (n === 3) { drawMailCards(); drawChecks(); }
 }
 const sleep = ms => new Promise(r => setTimeout(r, reduceMotion() ? Math.min(ms, 60) : ms));
-async function playAnim(kind) {
-  const a = mq$('#mAnim'); a.hidden = false; a.className = 'run ' + kind;
-  if (kind === 'seal') {
-    const lines = MAIL.body.split('\n').filter(x => x.trim()).slice(0, 6).map(x => '<p>' + esc(x.replace(/[#*_`>]/g, '').slice(0, 46)) + '</p>').join('');
-    a.innerHTML = '<div class="scene"><div class="env"><div class="e-back"></div><div class="e-letter">' + lines + '</div><div class="e-front"></div><div class="e-flap"></div><div class="e-seal">✓</div></div><div class="cap">Sealing your message…</div></div>';
-    await sleep(2100);
-  } else {
-    a.innerHTML = '<div class="scene"><svg class="trail" viewBox="0 0 400 220" aria-hidden="true"><path pathLength="1" d="M20 190 C 120 215, 190 30, 380 40"/></svg><svg class="plane" viewBox="0 0 24 24" width="46" height="46" aria-hidden="true"><path d="M21.5 3.2L2.800 10.600c-.8.300-.800 1.400 0 1.700l5.300 2 2 5.300c.300.800 1.400.800 1.700 0L21.500 3.200z" fill="currentColor"/><path d="M8.100 14.300l13.400-11.100" stroke="var(--bg)" stroke-width="1.200" fill="none"/></svg><div class="cap">Packing it up…</div></div>';
-    await sleep(1900);
+let animSkip = null;
+const sleepS = ms => new Promise(r => { const t = setTimeout(r, reduceMotion() ? Math.min(ms, 60) : ms); animSkip = () => { clearTimeout(t); r(); }; });
+function burst(host, n, spread, size) {
+  const box = document.createElement('div'); box.className = 'bursts'; const cols = ['var(--acc)', '#ff9f0a', '#30d158', '#bf5af2', '#ff375f', '#64d2ff'];
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, d = spread * (.45 + Math.random() * .55), p = document.createElement('i');
+    p.style.cssText = '--x:' + Math.cos(a) * d + 'px;--y:' + (Math.sin(a) * d - spread * .2) + 'px;--r:' + (Math.random() * 540 - 270) + 'deg;--s:' + (size * (.6 + Math.random() * .8)) + 'px;background:' + cols[i % cols.length] + ';animation-delay:' + (Math.random() * .12) + 's' + (i % 3 === 0 ? ';border-radius:50%' : '');
+    box.appendChild(p);
   }
-  a.hidden = true; a.innerHTML = ''; a.className = '';
+  host.appendChild(box); setTimeout(() => box.remove(), 1600);
+}
+async function playAnim(kind) {
+  const a = mq$('#mAnim'); a.hidden = false; a.className = 'run ' + kind; a.onclick = () => animSkip && animSkip();
+  const cap = t => { const c = a.querySelector('.cap'); if (c) { c.classList.remove('swap'); void c.offsetWidth; c.textContent = t; c.classList.add('swap'); } };
+  if (kind === 'seal') {
+    const lines = MAIL.body.split('\n').filter(x => x.trim()).slice(0, 7).map(x => '<p>' + esc(x.replace(/[#*_`>]/g, '').slice(0, 40)) + '</p>').join('') || '<p>…</p>';
+    const pg = n => '<div class="pg" style="transform:translateY(-' + n + 'px)"><h6>' + esc((MAIL.subject || 'Your message').slice(0, 30)) + '</h6>' + lines + '</div>';
+    a.innerHTML = '<div class="scene"><div class="env"><div class="e-back"></div><div class="fold"><div class="fold-in"><div class="f-p f-t">' + pg(0) + '</div><div class="f-p f-m">' + pg(50) + '</div><div class="f-p f-b">' + pg(100) + '</div></div></div><div class="e-front"></div><div class="e-flap"></div><div class="e-seal"><b>✓</b></div></div><div class="cap swap">Folding your message…</div></div>';
+    await sleepS(1700); cap('Tucking it in…'); await sleepS(1000); cap('Sealing…'); await sleepS(750);
+    burst(a.querySelector('.env'), 16, 150, 7); cap('Ready'); await sleepS(950);
+  } else {
+    const to = MAIL.to.length ? addrParse(MAIL.to[0]) : { name: '', email: 'recipient' };
+    const more = MAIL.to.length > 1 ? ' +' + (MAIL.to.length - 1) : '';
+    a.innerHTML = '<div class="scene"><div class="se-wrap"><div class="se-lines"></div><div class="sendenv"><div class="se-flap"></div><div class="se-addr"><small>To</small><b>' + esc((to.name || to.email).slice(0, 26)) + more + '</b></div><div class="se-stamp"></div></div></div><div class="cap swap">Packaging your email…</div></div>';
+    await sleepS(900); cap('Whoosh'); burst(a.querySelector('.se-wrap'), 18, 120, 6); await sleepS(1500);
+  }
+  animSkip = null; a.hidden = true; a.innerHTML = ''; a.className = ''; a.onclick = null;
 }
 let mailBusy = false;
 async function mailReady() {
@@ -2813,7 +2857,7 @@ async function mailReady() {
   stageShow(2); mailBusy = false;
 }
 async function mailSend() {
-  if (mailBusy) return; mailBusy = true; rememberContacts(); mailSave(); await playAnim('send'); stageShow(3); mailBusy = false;
+  if (mailBusy) return; mailBusy = true; rememberContacts(); mailSave(); await playAnim('send'); stageShow(3); mailBusy = false; setTimeout(() => burst(mq$('.m-ok'), 22, 150, 7), 350);
 }
 function openMail(prefill) {
   if (prefill) { Object.assign(MAIL, { body: prefill.body || '', subject: prefill.subject || '', to: [], cc: [], bcc: [] }); mailSave(); }
@@ -2954,7 +2998,137 @@ function splitNote() {
 }
 const MORE2_COMMANDS = [['Split note into one note per section', '', splitNote], ['Compare with the latest saved version', '', () => { const h = docs[curId].history; if (!h.length) return toast('No saved versions yet'); openDiff(h[0]); }]];
 
-COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS, ...TOOL_COMMANDS, ...FEAT_COMMANDS, ...SNIP_COMMANDS, ...MORE2_COMMANDS);
+/* ───────── ambient sound (generated on your device, nothing is downloaded) ───────── */
+let AMB = null, KCTX = null;
+function stopAmbient() { if (!AMB) return; try { AMB.gain.gain.linearRampToValueAtTime(0, AMB.ctx.currentTime + .6); const c = AMB.ctx, s = AMB.src; setTimeout(() => { try { s.stop(); c.close(); } catch (e) { } }, 700); } catch (e) { } AMB = null; }
+function ambient(type, vol) {
+  stopAmbient(); if (!type || type === 'off') return false;
+  const C = window.AudioContext || window.webkitAudioContext; if (!C) return false;
+  const ctx = new C(), len = ctx.sampleRate * 5, buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch); let last = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    for (let i = 0; i < len; i++) {
+      const w = Math.random() * 2 - 1;
+      if (type === 'brown') { last = (last + .02 * w) / 1.02; d[i] = last * 3.5; }
+      else if (type === 'pink') { b0 = .99886 * b0 + w * .0555179; b1 = .99332 * b1 + w * .0750759; b2 = .969 * b2 + w * .153852; b3 = .8665 * b3 + w * .3104856; b4 = .55 * b4 + w * .5329522; b5 = -.7616 * b5 - w * .016898; d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * .5362) * .11; b6 = w * .115926; }
+      else d[i] = w * .5;
+    }
+  }
+  const src = ctx.createBufferSource(), g = ctx.createGain(); src.buffer = buf; src.loop = true;
+  let node = src;
+  if (type === 'rain') { const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000; src.connect(hp); hp.connect(lp); node = lp; }
+  node.connect(g); g.connect(ctx.destination);
+  const target = Math.max(0, Math.min(1, vol)) * (type === 'brown' ? .5 : type === 'rain' ? .35 : .22);
+  g.gain.setValueAtTime(0, ctx.currentTime); g.gain.linearRampToValueAtTime(target, ctx.currentTime + 2);
+  src.start(); AMB = { ctx, src, gain: g, type }; return true;
+}
+function keyClick(e) {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing || e.key === 'Shift' || e.key === 'Control' || e.key === 'Meta' || e.key === 'Alt') return;
+  const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+  try {
+    KCTX = KCTX || new C(); const c = KCTX, big = e.key === ' ' || e.key === 'Enter', n = Math.floor(c.sampleRate * (big ? .05 : .025)), b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, big ? 3 : 5);
+    const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); s.buffer = b; f.type = 'bandpass'; f.frequency.value = big ? 700 : 1800 + Math.random() * 900; f.Q.value = .9; g.gain.value = big ? .5 : .32;
+    s.connect(f); f.connect(g); g.connect(c.destination); s.start();
+  } catch (err) { }
+}
+
+/* ───────── ultra focus ───────── */
+const UL = Object.assign({ min: 25, goal: 0, type: 'off', vol: .5, fs: true, hard: false }, store.get('ultra', {}));
+const UF = { on: false, t0: 0, w0: 0, end: 0, int: null, escAt: 0, prev: null, enteredFs: false, hudT: 0 };
+function openUltra() {
+  let el = $('#ultra');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'ultra'; el.className = 'overlay';
+    el.innerHTML = '<div class="card ul"><div class="set-head"><div><h2>Ultra focus</h2><small>Everything fades away except the sentence you are writing.</small></div><button class="icon" id="ulClose" aria-label="Close">✕</button></div>' +
+      '<h3>Length</h3><div class="chips" id="ulMin">' + [15, 25, 45, 60, 0].map(m => '<button class="chip" data-m="' + m + '">' + (m ? m + ' min' : 'No limit') + '</button>').join('') + '</div>' +
+      '<h3>Word goal <small>(optional)</small></h3><div class="ul-row"><input id="ulGoal" type="number" min="0" step="50" placeholder="0 = none"></div>' +
+      '<h3>Ambient sound</h3><div class="chips" id="ulSnd">' + [['off', 'Off'], ['brown', 'Brown noise'], ['pink', 'Pink noise'], ['rain', 'Rain'], ['white', 'White noise']].map(x => '<button class="chip" data-t="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>' +
+      '<div class="ul-row"><label class="chk">Volume <input id="ulVol" type="range" min="0" max="1" step="0.05"></label></div>' +
+      '<div class="ul-opts"><label class="chk"><input type="checkbox" id="ulFs"> Go full screen</label><label class="chk"><input type="checkbox" id="ulHard"> Draft mode: no deleting</label><label class="chk"><input type="checkbox" id="ulKeys"> Typewriter key sounds</label></div>' +
+      '<div class="ul-act"><span class="hint">Music keeps playing if it is open. Press Esc twice to leave.</span><div class="spacer"></div><button id="ulGo" class="primary">Begin</button></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('mousedown', e => { if (e.target === el) el.hidden = true; });
+    el.querySelector('#ulClose').onclick = () => { el.hidden = true; ed.focus(); };
+    el.querySelector('#ulMin').addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (b) { UL.min = +b.dataset.m; paintUltra(); } });
+    el.querySelector('#ulSnd').addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (b) { UL.type = b.dataset.t; paintUltra(); ambient(UL.type, UL.vol); if (UL.type !== 'off') setTimeout(() => { if (!$('#ultra').hidden && !UF.on) stopAmbient(); }, 2500); } });
+    el.querySelector('#ulVol').addEventListener('input', e => { UL.vol = +e.target.value; if (AMB) AMB.gain.gain.value = UL.vol * (AMB.type === 'brown' ? .5 : AMB.type === 'rain' ? .35 : .22); });
+    el.querySelector('#ulGo').onclick = startUltra;
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); el.hidden = true; ed.focus(); } else if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); startUltra(); } });
+  }
+  el.hidden = false; paintUltra(); el.querySelector('#ulGo').focus();
+}
+function paintUltra() {
+  const el = $('#ultra'); el.querySelectorAll('#ulMin .chip').forEach(b => b.classList.toggle('on', +b.dataset.m === UL.min)); el.querySelectorAll('#ulSnd .chip').forEach(b => b.classList.toggle('on', b.dataset.t === UL.type));
+  el.querySelector('#ulGoal').value = UL.goal || ''; el.querySelector('#ulVol').value = UL.vol; el.querySelector('#ulFs').checked = UL.fs; el.querySelector('#ulHard').checked = UL.hard; el.querySelector('#ulKeys').checked = !!S.keysound;
+}
+function ultraHud(show) {
+  const h = $('#ultraHud'); if (!h) return; const left = UF.end ? Math.max(0, UF.end - Date.now()) : Date.now() - UF.t0, sec = Math.ceil(left / 1000), w = Math.max(0, countWords(ed.value) - UF.w0);
+  h.innerHTML = '<span>' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') + (UF.end ? ' left' : '') + '</span><i></i><span>' + w + (UL.goal ? ' / ' + UL.goal : '') + ' words</span>' + (UL.hard ? '<i></i><span>🔒</span>' : '');
+  $('#ultraBar').style.width = (UF.end ? Math.min(100, (Date.now() - UF.t0) / (UF.end - UF.t0) * 100) : UL.goal ? Math.min(100, w / UL.goal * 100) : 0) + '%';
+  if (show) { h.classList.add('on'); clearTimeout(UF.hudT); UF.hudT = setTimeout(() => h.classList.remove('on'), 2600); }
+}
+function startUltra() {
+  if (UF.on) return; UL.goal = Math.max(0, parseInt($('#ulGoal').value, 10) || 0); UL.fs = $('#ulFs').checked; UL.hard = $('#ulHard').checked; S.keysound = $('#ulKeys').checked; saveSettings(); store.set('ultra', UL);
+  $('#ultra').hidden = true; if (!$('#research').hidden) closeResearch(); if (document.body.classList.contains('reading')) toggleReading(false);
+  UF.prev = { focus: S.focus, typewriter: S.typewriter, preview: !$('#preview').hidden }; $('#preview').hidden = true;
+  S.focus = 'sentence'; S.typewriter = true; UF.on = true; UF.t0 = Date.now(); UF.w0 = countWords(ed.value); UF.end = UL.min ? UF.t0 + UL.min * 60000 : 0; UF.escAt = 0;
+  document.body.classList.add('ultra'); applySettings();
+  let hud = $('#ultraHud'); if (!hud) { hud = document.createElement('div'); hud.id = 'ultraHud'; document.body.appendChild(hud); const bar = document.createElement('div'); bar.id = 'ultraBar'; document.body.appendChild(bar); }
+  const veil = document.createElement('div'); veil.id = 'ultraVeil'; veil.innerHTML = '<div class="breath"></div><b>Focus</b><span>' + (UL.min ? UL.min + ' minutes' : 'No time limit') + (UL.goal ? ' · ' + UL.goal + ' words' : '') + '</span>'; document.body.appendChild(veil); setTimeout(() => veil.remove(), 2000);
+  if (UL.fs) { try { if (!document.fullscreenElement && document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen().then(() => { UF.enteredFs = true; }).catch(() => { }); } } catch (e) { } }
+  ambient(UL.type, UL.vol); ed.focus(); ensureCaret(false); render();
+  UF.int = setInterval(() => { if (!UF.on) return; ultraHud(false); if (UF.end && Date.now() >= UF.end) finishUltra(); else if (UL.goal && countWords(ed.value) - UF.w0 >= UL.goal && !UF.goalHit) { UF.goalHit = true; beep(); ultraHud(true); toast('Goal reached 🎉'); } }, 1000);
+  UF.goalHit = false; setTimeout(() => ultraHud(true), 2100);
+}
+function chime() { try { const C = window.AudioContext || window.webkitAudioContext, c = new C(); [523.25, 659.25, 783.99].forEach((f, i) => { const o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(c.destination); const t = c.currentTime + i * .16; g.gain.setValueAtTime(.001, t); g.gain.exponentialRampToValueAtTime(.18, t + .03); g.gain.exponentialRampToValueAtTime(.001, t + 1.2); o.start(t); o.stop(t + 1.3); }); } catch (e) { } }
+function leaveUltra() {
+  if (!UF.on) return null; clearInterval(UF.int); UF.on = false;
+  const sec = Math.round((Date.now() - UF.t0) / 1000), words = Math.max(0, countWords(ed.value) - UF.w0);
+  S.focus = UF.prev.focus; S.typewriter = UF.prev.typewriter; $('#preview').hidden = !UF.prev.preview; document.body.classList.remove('ultra'); applySettings();
+  stopAmbient(); try { if (UF.enteredFs && document.fullscreenElement) document.exitFullscreen(); } catch (e) { } UF.enteredFs = false;
+  const h = $('#ultraHud'); if (h) h.classList.remove('on'); const bar = $('#ultraBar'); if (bar) bar.style.width = '0'; ed.focus(); render();
+  return { sec, words };
+}
+function finishUltra(manual) { const r = leaveUltra(); if (!r) return; if (!manual) chime(); if (r.sec > 20 || r.words > 0) showUltraDone(r, !manual); }
+function showUltraDone(r, done) {
+  let el = $('#ultraDone'); if (!el) { el = document.createElement('div'); el.id = 'ultraDone'; el.className = 'overlay'; document.body.appendChild(el); el.addEventListener('mousedown', e => { if (e.target === el) el.hidden = true; }); el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); el.hidden = true; ed.focus(); } }); }
+  const m = Math.floor(r.sec / 60), s = r.sec % 60, wpm = r.sec > 30 ? Math.round(r.words / (r.sec / 60)) : 0;
+  el.innerHTML = '<div class="card ul done"><div class="ul-ring"><svg viewBox="0 0 52 52" width="64" height="64"><circle cx="26" cy="26" r="23" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M15 27l8 8 14-17" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h2>' + (done ? 'Session complete' : 'Nice session') + '</h2><div class="stats"><div class="stat"><b>' + r.words + '</b><span>Words written</span></div><div class="stat"><b>' + m + ':' + String(s).padStart(2, '0') + '</b><span>Time focused</span></div><div class="stat"><b>' + (wpm || '–') + '</b><span>Words / min</span></div></div><div class="ul-act"><button id="udAgain">Another 10 min</button><div class="spacer"></div><button class="primary" id="udOk">Done</button></div></div>';
+  el.hidden = false; burst(el.querySelector('.ul-ring'), 20, 140, 7);
+  el.querySelector('#udOk').onclick = () => { el.hidden = true; ed.focus(); }; el.querySelector('#udAgain').onclick = () => { el.hidden = true; UL.min = 10; startUltra2(); }; el.querySelector('#udOk').focus();
+}
+function startUltra2() { $('#ultra') || openUltra(); $('#ultra').hidden = true; paintUltra(); startUltra(); }
+function ultraEsc() { if (!UF.on) return false; const n = Date.now(); if (n - UF.escAt < 2000) { finishUltra(true); return true; } UF.escAt = n; toast('Press Esc again to leave ultra focus'); return true; }
+document.addEventListener('mousemove', () => { if (UF.on) ultraHud(true); }, { passive: true });
+document.addEventListener('fullscreenchange', () => { if (UF.on && !document.fullscreenElement && UF.enteredFs) { UF.enteredFs = false; } });
+
+/* ───────── note target, footnotes, writing prompts ───────── */
+function setTarget() { const d = docs[curId], v = prompt('Word target for this note (0 clears it)', d.target || ''); if (v === null) return; const n = Math.max(0, parseInt(v, 10) || 0); if (n) d.target = n; else delete d.target; persist(); updateStatus(); toast(n ? 'Target: ' + n + ' words' : 'Target cleared'); }
+$('#stTarget').onclick = setTarget;
+function insertFootnote() {
+  const t = ed.value, nums = [...t.matchAll(/^\[\^(\d+)\]:/gm)].map(m => +m[1]), n = (nums.length ? Math.max(...nums) : 0) + 1;
+  insertText('[^' + n + ']'); const end = ed.value.length, pre = ed.value.endsWith('\n\n') ? '' : ed.value.endsWith('\n') ? '\n' : '\n\n';
+  ed.setSelectionRange(end, end); insertText(pre + '[^' + n + ']: '); toast('Write the footnote, then Ctrl/⌘ Z steps back');
+}
+const PROMPTS = ['Describe a room using only sounds.', 'Write about the last time you changed your mind.', 'A character finds a key that opens nothing they own.', 'Explain your job to someone from 200 years ago.', 'Write a letter to yourself ten years from now.', 'What is the smallest detail you remember from your childhood home?', 'Two strangers share an umbrella. What do they never say?', 'Describe a color to someone who has never seen it.', 'Write the opening line of a book you wish existed.', 'What would your younger self be surprised you believe now?', 'Someone returns a library book 40 years late.', 'Write about a place that no longer exists.', 'Tell a true story in exactly 100 words.', 'What is a skill you wish everyone had?', 'The last day of summer, from the point of view of a lighthouse.', 'Defend an unpopular opinion you actually hold.', 'A town where it has been raining for a year.', 'Write a conversation that is entirely a misunderstanding.', 'What does “home” smell like?', 'You wake up and everyone speaks a language you invented as a child.', 'Describe your morning as if it were an epic poem.', 'What are you pretending not to know?', 'Write about a door you walked through that changed everything.', 'An ordinary object has been in your family for generations. What is it, and why?', 'Write a toast for someone who is not there.', 'List ten things that are quietly beautiful.', 'A character who can’t lie has to keep a secret.', 'What is a risk you’re glad you took?', 'Write the scene right before the phone call.', 'Explain something complicated using only words of one syllable.'];
+function writingPrompt() { const p = PROMPTS[Math.floor(Math.random() * PROMPTS.length)]; insertBlock('> ✦ **Prompt:** ' + p); toast('Run it again for another prompt'); }
+
+const ULTRA_COMMANDS = [
+  ['Ultra focus…', mod_() + ' ⇧ U', openUltra],
+  ['Ultra focus: start with last settings', '', () => { openUltra(); startUltra(); }],
+  ['Ambient sound: brown noise', '', () => { UL.type = 'brown'; store.set('ultra', UL); ambient('brown', UL.vol); toast('Brown noise · run “Ambient sound: off” to stop'); }],
+  ['Ambient sound: rain', '', () => { UL.type = 'rain'; store.set('ultra', UL); ambient('rain', UL.vol); toast('Rain · run “Ambient sound: off” to stop'); }],
+  ['Ambient sound: pink noise', '', () => { UL.type = 'pink'; store.set('ultra', UL); ambient('pink', UL.vol); toast('Pink noise'); }],
+  ['Ambient sound: off', '', () => { stopAmbient(); toast('Ambient sound off'); }],
+  ['Typewriter key sounds: toggle', '', () => { S.keysound = !S.keysound; saveSettings(); syncSettingsForm(); toast('Key sounds ' + (S.keysound ? 'on' : 'off')); }],
+  ['Set word target for this note…', '', setTarget],
+  ['Insert footnote', '', insertFootnote],
+  ['Writing prompt', '', writingPrompt]
+];
+
+$('#ultraBtn').onclick = openUltra;
+COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS, ...TOOL_COMMANDS, ...FEAT_COMMANDS, ...SNIP_COMMANDS, ...MORE2_COMMANDS, ...ULTRA_COMMANDS);
 let palSel = 0, palItems = [], palMode = 'cmd';
 function openPalette(mode, prefill) {
   palMode = mode === 'doc' ? 'doc' : 'cmd'; palSel = 0;
@@ -2999,8 +3173,10 @@ ed.addEventListener('input', () => {
 });
 ed.addEventListener('keydown', e => {
   document.body.classList.add('typing');
+  if (S.keysound) keyClick(e);
   if (popKey(e)) return;
   if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && expandSnippet()) { e.preventDefault(); return; }
+  if (UF.on && UL.hard && (e.key === 'Backspace' || e.key === 'Delete' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z'))) { e.preventDefault(); toast('Draft mode: no deleting until you leave ultra focus'); return; }
   if (timer && timer.hard && (e.key === 'Backspace' || e.key === 'Delete' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z'))) { e.preventDefault(); toast('Sprint: no deleting until the timer ends'); return; }
   if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter') { e.preventDefault(); ctrlEnter(); return; }
   if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); moveLines(e.key === 'ArrowUp' ? -1 : 1); return; }
@@ -3045,6 +3221,7 @@ $('#preview').addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   const m = e.metaKey || e.ctrlKey; const k = e.key.toLowerCase();
   if (e.key === 'Escape') {
+    if (ultraEsc()) return;
     if (!$('#studio').hidden || !$('#mail').hidden) return;
     if ($('#cards') && !$('#cards').hidden) return;
     if (document.body.classList.contains('reading')) return toggleReading(false);
@@ -3069,6 +3246,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'e' && e.shiftKey) run(openStudio);
   else if (k === 'o' && e.shiftKey) run(openCards);
   else if (k === 'd' && e.shiftKey) run(openDaily);
+  else if (k === 'u' && e.shiftKey) run(openUltra);
   else if (k === 'm' && e.shiftKey) run(() => openMail());
   else if (k === '/') run(toggleComment);
   else if (k === 'enter' && e.shiftKey) run(toggleFullscreen);
@@ -3113,7 +3291,7 @@ addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragN = 0; if (!$('#studio').hidden) return; document.body.classList.remove('drop'); if (e.dataTransfer?.files?.length) handleFiles([...e.dataTransfer.files]); });
 
 // desktop wrapper hooks (Electron menu)
-window.wren = { openMail, openDaily, openPresent, toggleReading, formatTable, setTheme, openCards, openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { lineDiff, splitNote, paintRanges, MAIL, mdToPlain, subjectIdeas, addrParse, splitAddrs, mailChecks, mailAll, mailtoUrl, mailPlain, mailRich, expandSnippet, mailReady, mailSend, stageShow, splitSlides, snip, THEMES, styleScan, applyStyleFix, fixAllStyle, tagsOf, matchDoc, splitSections, CARDS, moveCard, applyCards, renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
+window.wren = { openUltra, startUltra, openMail, openDaily, openPresent, toggleReading, formatTable, setTheme, openCards, openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { UF, UL, ambient, stopAmbient, leaveUltra, ultraEsc, setTarget, insertFootnote, writingPrompt, PROMPTS, parseYouTube, lineDiff, splitNote, paintRanges, MAIL, mdToPlain, subjectIdeas, addrParse, splitAddrs, mailChecks, mailAll, mailtoUrl, mailPlain, mailRich, expandSnippet, mailReady, mailSend, stageShow, splitSlides, snip, THEMES, styleScan, applyStyleFix, fixAllStyle, tagsOf, matchDoc, splitSections, CARDS, moveCard, applyCards, renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
 
 /* ───────── boot ───────── */
 document.body.classList.toggle('nosb', !S.sidebar || innerWidth <= 820);

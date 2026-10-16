@@ -20,6 +20,8 @@ function createWindow() {
     if (/^(https?|mailto):/.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
+  // YouTube's embedded player refuses to load without a valid web referrer, and file:// pages have none.
+  win.webContents.session.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/*', 'https://www.youtube.com/*'] }, (details, cb) => { details.requestHeaders['Referer'] = 'https://victor-stanovoy.github.io/write/'; cb({ requestHeaders: details.requestHeaders }); });
   win.webContents.session.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'fullscreen'));
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file:')) { e.preventDefault(); if (/^(https?|mailto):/.test(url)) shell.openExternal(url); } });
   // leave room for the macOS traffic lights
@@ -41,6 +43,7 @@ function buildMenu() {
       { label: 'Present as Slides', click: () => call('wren.openPresent()') },
       { label: 'Reading Mode', click: () => call('wren.toggleReading()') },
       { label: 'Compose Email…', accelerator: 'CmdOrCtrl+Shift+M', click: () => call('wren.openMail()') },
+      { label: 'Ultra Focus…', accelerator: 'CmdOrCtrl+Shift+U', click: () => call('wren.openUltra()') },
       { label: 'Quick Open…', accelerator: 'CmdOrCtrl+P', click: () => call("wren.openPalette('doc')") },
       { label: 'Back Up All Documents…', click: () => call('wren.backupAll()') },
       { label: 'Export All as ZIP…', click: () => call('wren.exportZip()') },
