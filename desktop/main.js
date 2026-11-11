@@ -38,6 +38,8 @@ function buildMenu() {
       { label: 'Save…', accelerator: 'CmdOrCtrl+S', click: () => call('wren.saveFile()') },
       { label: 'New from Template…', click: () => call('wren.openTemplates()') },
       { label: 'Studio (Visual Editor)', accelerator: 'CmdOrCtrl+Shift+E', click: () => call('wren.openStudio()') },
+      { label: 'Script Writer', accelerator: 'CmdOrCtrl+Shift+Y', click: () => call('wren.openScript()') },
+      { label: 'Typewriter Mode', accelerator: 'CmdOrCtrl+Alt+T', click: () => call('wren.toggleTypewriter()') },
       { label: 'Rearrange Sections…', accelerator: 'CmdOrCtrl+Shift+O', click: () => call('wren.openCards()') },
       { label: 'Today’s Daily Note', accelerator: 'CmdOrCtrl+Shift+D', click: () => call('wren.openDaily()') },
       { label: 'Present as Slides', click: () => call('wren.openPresent()') },

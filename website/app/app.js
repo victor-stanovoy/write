@@ -278,16 +278,36 @@ function caretPos() {
   measure.textContent = ed.value.slice(0, ed.selectionEnd);
   const sp = document.createElement('span'); sp.textContent = '\u200b';
   measure.appendChild(sp);
-  return { x: inner.offsetLeft + sp.offsetLeft, y: inner.offsetTop + sp.offsetTop };
+  return { x: inner.offsetLeft + sp.offsetLeft, y: inner.offsetTop + sp.offsetTop, h: sp.offsetHeight };
 }
 const caretY = () => caretPos().y;
+/* typewriter mode: the line you are writing stays centred; a faint band marks it */
+const twLine = document.createElement('div'); twLine.id = 'twLine'; twLine.setAttribute('aria-hidden', 'true'); $('#column').insertBefore(twLine, $('#inner'));
+let twAnim = 0;
+function twScroll(target) {
+  cancelAnimationFrame(twAnim); const from = scroller.scrollTop, d = target - from;
+  if (Math.abs(d) < 1.5) return;
+  if (reduceMotion() || Math.abs(d) > scroller.clientHeight * 1.2) { scroller.scrollTop = target; return; }
+  const t0 = performance.now(), dur = 170;
+  const step = now => { const p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3); scroller.scrollTop = from + d * e; if (p < 1) twAnim = requestAnimationFrame(step); };
+  twAnim = requestAnimationFrame(step);
+}
+function twMark(c, lh) {
+  if (!S.typewriter) return;
+  if (c == null || typeof c !== 'object') { c = c == null ? caretPos() : { y: c, h: lh }; lh = parseFloat(getComputedStyle(bd).lineHeight) || 28; }
+  const mid = c.y + (c.h || lh) / 2; twLine.style.height = lh + 'px'; twLine.style.transform = 'translateY(' + (mid - lh / 2) + 'px)';
+}
+function toggleTypewriter() {
+  S.typewriter = !S.typewriter; saveSettings(); applySettings(); syncSettingsForm();
+  toast(S.typewriter ? 'Typewriter mode on' : 'Typewriter mode off'); if (S.typewriter) ensureCaret(true);
+}
 function ensureCaret(smooth) {
-  const y = caretY();
+  const c = caretPos(), y = c.y;
   const lh = parseFloat(getComputedStyle(bd).lineHeight) || 28;
   const h = scroller.clientHeight;
+  if (S.typewriter) { scroller.classList.remove('smooth'); twMark(c, lh); twScroll(Math.max(0, y + (c.h || lh) / 2 - h / 2)); return; }
   let target;
-  if (S.typewriter) target = y - h / 2 + lh / 2;
-  else if (y < scroller.scrollTop + 60) target = y - 60;
+  if (y < scroller.scrollTop + 60) target = y - 60;
   else if (y + lh > scroller.scrollTop + h - 80) target = y + lh - h + 80;
   else return;
   scroller.classList.toggle('smooth', !!smooth);
@@ -754,6 +774,7 @@ function applySettings() {
   const th = S.theme === 'auto' ? (mq.matches ? 'dark' : 'light') : S.theme;
   document.body.dataset.theme = th;
   const meta = $('meta[name=theme-color]'); if (meta) meta.content = (THEMES.find(x => x[0] === th) || THEMES[0])[2];
+  document.body.classList.toggle('tw', !!S.typewriter); { const b = $('#stTw'); if (b) b.setAttribute('aria-pressed', !!S.typewriter); }
   r.setProperty('--pad-top', S.typewriter ? '38vh' : '48px'); r.setProperty('--pad-bot', S.typewriter ? '50vh' : '30vh');
   document.body.dataset.prop = (S.font === 'serif' || S.font === 'sans') ? '1' : '';
   ed.spellcheck = !!S.spell;
@@ -1044,6 +1065,9 @@ function insertTOC() {
 
 /* ───────── templates ───────── */
 const TPL = [
+  { name: 'Screenplay', cat: 'Script', md: 'Title: Untitled Screenplay\nCredit: Written by\nAuthor: \nDraft date: {{date}}\n\nFADE IN:\n\nINT. COFFEE SHOP - MORNING\n\nA small corner café. Rain taps the window. MAYA (30s, ink on her fingers) stares at a blinking cursor.\n\nMAYA\n(under her breath)\nCome on.\n\nBARISTA (O.S.)\nYour usual?\n\nMAYA\nNot today.\n\nShe closes the laptop. Opens it again.\n\nCUT TO:\n\nEXT. CITY STREET - CONTINUOUS\n\nMaya steps out into the rain and, for once, does not mind.\n$0' },
+  { name: 'Stage play', cat: 'Script', md: 'Title: Untitled Play\nCredit: A play in one act\nAuthor: \nFormat: stage\n\n# ACT ONE\n\n.SCENE 1 — A kitchen, late evening\n\n(A small kitchen. One window, one table, two chairs. A kettle is about to boil.)\n\nANNA\nYou said you would be home by eight.\n\nTOM\n(not looking up)\nI said I would try.\n\n(ANNA turns off the kettle. Silence.)\n\nANNA\nTry harder.\n$0' },
+  { name: 'TV cold open', cat: 'Script', md: 'Title: Untitled Series\nCredit: Episode 101 — “Pilot”\nAuthor: \nDraft date: {{date}}\n\nCOLD OPEN\n\nINT. NEWSROOM - NIGHT\n\nEvery screen is on. Nobody is looking at them.\n\nDANA\nWho turned the news on?\n\nSAM\nIt turned itself on.\n\nSMASH CUT TO:\n\nMAIN TITLES\n$0' },
   { name: 'Journal entry', cat: 'Personal', md: '# {{date}}\n\n> **How I feel today:** $0\n\n## <span style="color:#f97316">Gratitude</span>\n\n- \n- \n- \n\n## <span style="color:#0891b2">Highlights</span>\n\n\n\n## <span style="color:#7c3aed">Tomorrow</span>\n\n- [ ] \n' },
   { name: 'Morning pages', cat: 'Personal', md: '# Morning pages\n\n*{{date}} · write three pages without stopping, without editing.*\n\n---\n\n$0\n' },
   { name: 'Gratitude log', cat: 'Personal', md: '# Gratitude log\n\n*{{date}}*\n\n| | Today I’m grateful for |\n| --- | --- |\n| 1 | $0 |\n| 2 | |\n| 3 | |\n\n> **A small win:** \n' },
@@ -1579,7 +1603,7 @@ function fromTemplate(name) {
   let txt = t.md.replace(/\{\{date\}\}/g, d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
   const c = txt.indexOf('$0'); txt = txt.replace('$0', '');
   newDoc(txt); const pos = c < 0 ? txt.length : c;
-  ed.setSelectionRange(pos, pos); ensureCaret(false); render();
+  ed.setSelectionRange(pos, pos); ensureCaret(false); render(); if (t.cat === 'Script') openScript();
 }
 
 
@@ -1721,7 +1745,7 @@ const COMMANDS = [
   ['Focus: line', '', () => { S.focus = 'line'; applySettings(); saveSettings(); }],
   ['Focus: sentence', '', () => { S.focus = 'sentence'; applySettings(); saveSettings(); }],
   ['Focus: paragraph', '', () => { S.focus = 'paragraph'; applySettings(); saveSettings(); }],
-  ['Toggle typewriter scrolling', '', () => { S.typewriter = !S.typewriter; saveSettings(); applySettings(); syncSettingsForm(); }],
+  ['Toggle typewriter mode', mod_() + ' ⌥ T', toggleTypewriter],
   ['Find & replace', mod + ' F', () => toggleFind(true)],
   ['Show outline', '', () => { toggleSidebar(true); setTab('outline'); }],
   ['Show history', '', () => { toggleSidebar(true); setTab('history'); }],
@@ -2118,6 +2142,8 @@ function renderTemplates() {
 }
 $('#tplBtn').onclick = openTemplates;
 $('#studioBtn').onclick = openStudio;
+$('#stTw').onclick = toggleTypewriter;
+addEventListener('resize', () => { if (S.typewriter) twMark(); });
 
 /* ───────── Studio: visual editor that writes Markdown ───────── */
 const ST = { dirty: false, hist: [], i: -1, range: null, drag: null, mo: null, snapT: 0 };
@@ -2822,12 +2848,16 @@ function stageShow(n) {
 }
 const sleep = ms => new Promise(r => setTimeout(r, reduceMotion() ? Math.min(ms, 60) : ms));
 let animSkip = null;
-const sleepS = ms => new Promise(r => { const t = setTimeout(r, reduceMotion() ? Math.min(ms, 60) : ms); animSkip = () => { clearTimeout(t); r(); }; });
+let skipping = false;
+const sleepS = ms => new Promise(r => { if (skipping) return r(); const t = setTimeout(r, reduceMotion() ? Math.min(ms, 60) : ms); animSkip = () => { clearTimeout(t); r(); }; });
 function burst(host) {
   const box = document.createElement('div'); box.className = 'bursts'; box.innerHTML = '<i></i><i></i><i></i>'; host.appendChild(box); setTimeout(() => box.remove(), 1700);
 }
 async function playAnim(kind) {
-  const a = mq$('#mAnim'); a.hidden = false; a.className = 'run ' + kind; a.onclick = () => animSkip && animSkip();
+  const a = mq$('#mAnim'); a.hidden = false; a.className = 'run ' + kind; skipping = false;
+  const skipNow = () => { skipping = true; animSkip && animSkip(); }; a.onclick = skipNow;
+  const onKey = e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); skipNow(); } };
+  document.addEventListener('keydown', onKey, true);
   const cap = t => { const c = a.querySelector('.cap'); if (c) { c.classList.remove('swap'); void c.offsetWidth; c.textContent = t; c.classList.add('swap'); } };
   if (kind === 'seal') {
     const lines = MAIL.body.split('\n').filter(x => x.trim()).slice(0, 6).map(() => '<p style="width:' + (60 + Math.floor(Math.random() * 40)) + '%"></p>').join('') || '<p></p>';
@@ -2840,7 +2870,7 @@ async function playAnim(kind) {
     a.innerHTML = '<div class="scene"><div class="se-wrap"><div class="sendenv"><div class="se-flap"></div><div class="se-addr"><small>To</small><b>' + esc((to.name || to.email).slice(0, 26)) + more + '</b></div><div class="se-stamp"></div></div></div><div class="cap swap">Addressing your email…</div></div>';
     await sleepS(900); cap('On its way'); await sleepS(1100); burst(a.querySelector('.se-wrap'), 0); cap('Done'); await sleepS(700);
   }
-  animSkip = null; a.hidden = true; a.innerHTML = ''; a.className = ''; a.onclick = null;
+  document.removeEventListener('keydown', onKey, true); skipping = false; animSkip = null; a.hidden = true; a.innerHTML = ''; a.className = ''; a.onclick = null;
 }
 let mailBusy = false;
 async function mailReady() {
@@ -3122,7 +3152,464 @@ const ULTRA_COMMANDS = [
 ];
 
 $('#ultraBtn').onclick = openUltra;
-COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS, ...TOOL_COMMANDS, ...FEAT_COMMANDS, ...SNIP_COMMANDS, ...MORE2_COMMANDS, ...ULTRA_COMMANDS);
+/* ───────── script writer: screenplays + stage plays (Fountain under the hood) ───────── */
+const SC = { rows: [], meta: {}, fmt: 'screenplay', cur: 0, on: false, focus: false, tab: 'scenes', ac: null, hist: [], hi: -1, speaking: false, nav: true, navSet: false };
+const SC_T = ['scene', 'action', 'char', 'paren', 'dial', 'trans', 'act', 'note'];
+const SC_SHORT = { scene: 'Scene', action: 'Action', char: 'Character', paren: 'Paren', dial: 'Dialogue', trans: 'Transition', act: 'Act', note: 'Note' };
+const SC_LAB = {
+  screenplay: { scene: 'Scene heading', action: 'Action', char: 'Character', paren: 'Parenthetical', dial: 'Dialogue', trans: 'Transition', act: 'Act or section (not printed)', note: 'Note (not printed)' },
+  stage: { scene: 'Scene and setting', action: 'Stage direction', char: 'Character', paren: 'Parenthetical', dial: 'Dialogue', trans: 'Transition', act: 'Act', note: 'Note (not printed)' }
+};
+const SC_PH = { scene: 'INT. PLACE - DAY', action: 'Describe what we see…', char: 'CHARACTER', paren: 'how it is said', dial: 'What they say…', trans: 'CUT TO:', act: 'ACT ONE', note: 'A note to yourself' };
+const SC_PH_STAGE = { scene: 'SCENE 1 — A kitchen, evening', action: '(Stage direction)', act: 'ACT ONE' };
+const SC_SCENE_RE = /^(INT|EXT|EST|INT\.?\s*\/\s*EXT|I\s*\/\s*E)(\.|\s)/i;
+const SC_NEXT = { scene: 'action', action: 'action', char: 'dial', paren: 'dial', dial: 'char', trans: 'scene', act: 'scene', note: 'action' };
+const SC_EMPTY = { char: 'action', dial: 'action', paren: 'dial', scene: 'action', action: 'scene', trans: 'action', act: 'scene', note: 'action' };
+const SC_CYCLE = ['action', 'scene', 'char', 'dial', 'paren', 'trans'];
+const SC_W = {
+  screenplay: { scene: 60, action: 60, char: 38, paren: 25, dial: 35, trans: 16, act: 0, note: 0, pg: 54 },
+  stage: { scene: 60, action: 44, char: 44, paren: 44, dial: 44, trans: 16, act: 60, note: 0, pg: 48 }
+};
+const SC_PT = (() => { try { const d = document.createElement('div'); d.setAttribute('contenteditable', 'plaintext-only'); return d.contentEditable === 'plaintext-only'; } catch (e) { return false; } })();
+const scUp = s => String(s || '').toUpperCase();
+const scName = x => scUp(x).replace(/\s*\(.*?\)\s*/g, ' ').replace(/\^$/, '').trim();
+const scPh = (t, fmt) => (fmt === 'stage' && SC_PH_STAGE[t]) || SC_PH[t];
+
+function scParse(text) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n'), meta = {}; let i = 0;
+  const KEYS = { title: 'title', credit: 'credit', author: 'author', authors: 'author', 'draft date': 'draft', date: 'draft', contact: 'contact', format: 'format', source: 'source' };
+  const kv = l => { const m = /^([A-Za-z][A-Za-z ]*?):\s*(.*)$/.exec(l); return m && KEYS[m[1].toLowerCase()] ? [KEYS[m[1].toLowerCase()], m[2]] : null; };
+  if (lines[0] && kv(lines[0])) {
+    let k = null;
+    for (; i < lines.length && lines[i].trim(); i++) {
+      const p = kv(lines[i]);
+      if (p) { k = p[0]; meta[k] = p[1]; } else if (k && /^\s/.test(lines[i])) meta[k] += '\n' + lines[i].trim(); else break;
+    }
+  }
+  const rows = []; let blank = true, dial = false;
+  for (; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) { blank = true; dial = false; continue; }
+    const last = rows[rows.length - 1];
+    if (/^\[\[[\s\S]*\]\]$/.test(t)) { rows.push({ t: 'note', x: t.slice(2, -2).trim() }); continue; }
+    if (dial) {
+      if (/^\(.*\)$/.test(t)) rows.push({ t: 'paren', x: t.slice(1, -1) });
+      else if (last && last.t === 'dial') last.x += '\n' + t; else rows.push({ t: 'dial', x: t });
+      blank = false; continue;
+    }
+    if (blank) {
+      if (/^#{1,6}\s/.test(t)) { rows.push({ t: 'act', x: t.replace(/^#+\s*/, '') }); blank = false; continue; }
+      if (/^=\s/.test(t)) { rows.push({ t: 'note', x: t.replace(/^=\s*/, '') }); blank = false; continue; }
+      if (t[0] === '.' && t[1] !== '.') { rows.push({ t: 'scene', x: t.slice(1).replace(/\s*#[^#]*#\s*$/, '') }); blank = false; continue; }
+      if (SC_SCENE_RE.test(t)) { rows.push({ t: 'scene', x: t.replace(/\s*#[^#]*#\s*$/, '') }); blank = false; continue; }
+      if (t[0] === '>' && !/<\s*$/.test(t)) { rows.push({ t: 'trans', x: t.slice(1).trim() }); blank = false; continue; }
+      if (/^[^a-z]*[A-Z][^a-z]*TO:$/.test(t)) { rows.push({ t: 'trans', x: t }); blank = false; continue; }
+      const forced = t[0] === '@', nm = forced ? t.slice(1).trim() : t.replace(/\s*\^$/, ''), nxt = (lines[i + 1] || '').trim();
+      if (nxt && (forced || (!/[a-z]/.test(nm.replace(/\(.*?\)/g, '')) && /[A-Z]/.test(nm) && nm[0] !== '(' && nm[0] !== '!'))) { rows.push({ t: 'char', x: nm }); dial = true; blank = false; continue; }
+    }
+    let x = t[0] === '!' ? t.slice(1) : t; if (/^>.*<$/.test(x)) x = x.slice(1, -1).trim();
+    if (!blank && last && last.t === 'action') last.x += '\n' + x; else rows.push({ t: 'action', x });
+    blank = false;
+  }
+  if (!rows.length) rows.push({ t: 'scene', x: '' });
+  return { meta, rows };
+}
+
+function scSerial(rows, meta, fmt) {
+  const out = [], m = Object.assign({}, meta, { format: fmt === 'stage' ? 'stage' : '' });
+  [['title', 'Title'], ['credit', 'Credit'], ['author', 'Author'], ['source', 'Source'], ['draft', 'Draft date'], ['contact', 'Contact'], ['format', 'Format']].forEach(([k, n]) => {
+    if (m[k] && String(m[k]).trim()) { const v = String(m[k]).trim().split('\n'); out.push(n + ': ' + v[0]); v.slice(1).forEach(l => out.push('    ' + l.trim())); }
+  });
+  if (out.length) out.push('');
+  let prev = null;
+  rows.forEach(r => {
+    const x = String(r.x || '').replace(/\s+$/, ''); if (!x.trim()) return;
+    let lines;
+    switch (r.t) {
+      case 'scene': { const u = scUp(x.trim()); lines = [SC_SCENE_RE.test(u) ? u : '.' + u]; break; }
+      case 'char': { const u = scUp(x.trim()); lines = [/[A-Z]/.test(u) ? u : '@' + u]; break; }
+      case 'paren': lines = ['(' + x.trim().replace(/^\(+|\)+$/g, '') + ')']; break;
+      case 'dial': lines = x.split('\n').map(l => l.trim()).filter(Boolean); break;
+      case 'trans': { const u = scUp(x.trim()); lines = [/TO:$/.test(u) ? u : '> ' + u]; break; }
+      case 'act': lines = ['# ' + x.trim()]; break;
+      case 'note': lines = ['[[' + x.trim().replace(/\n+/g, ' ') + ']]']; break;
+      default: lines = x.split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length && ((/[A-Z]/.test(lines[0]) && !/[a-z]/.test(lines[0])) || SC_SCENE_RE.test(lines[0]) || /^[.#@>!=~\[]/.test(lines[0]))) lines[0] = '!' + lines[0];
+    }
+    const chain = (prev === 'char' || prev === 'paren') && (r.t === 'paren' || r.t === 'dial');
+    if (out.length && !chain && out[out.length - 1] !== '') out.push('');
+    out.push(...lines); prev = r.t;
+  });
+  return out.join('\n').replace(/\n+$/, '') + '\n';
+}
+
+function scWrap(x, w) {
+  const res = [];
+  String(x || '').split('\n').forEach(seg => {
+    let cur = '';
+    seg.split(/\s+/).filter(Boolean).forEach(word => {
+      if (cur && cur.length + 1 + word.length > w) { res.push(cur); cur = word; } else cur = cur ? cur + ' ' + word : word;
+    });
+    res.push(cur);
+  });
+  return res;
+}
+const scLines = (x, w) => Math.max(1, scWrap(x, w).length);
+
+function scPaginate(rows, fmt) {
+  const W = SC_W[fmt] || SC_W.screenplay, pages = [[]]; let used = 0, prevT = null;
+  rows.forEach((r, i) => {
+    const w = W[r.t];
+    if (!w || !String(r.x || '').trim()) { r.pg = pages.length; return; }
+    const n = scLines(r.t === 'paren' ? '(' + r.x + ')' : r.x, w), chain = (prevT === 'char' || prevT === 'paren') && (r.t === 'paren' || r.t === 'dial');
+    let gap = used === 0 ? 0 : chain ? 0 : 1, need = gap + n;
+    if (r.t === 'scene') need += 3; else if (r.t === 'char') { const nx = rows[i + 1]; need += 1 + (nx && nx.x ? Math.min(2, scLines(nx.x, W[nx.t] || 35)) : 1); }
+    if ((used > 0 && used + need > W.pg) || (fmt === 'stage' && r.t === 'act' && used > 0)) { pages.push([]); used = 0; gap = 0; }
+    pages[pages.length - 1].push(i); r.pg = pages.length; used += gap + n; prevT = r.t;
+  });
+  return { pages, count: pages.length };
+}
+
+function scCast(rows) {
+  const m = new Map(); let c = null;
+  rows.forEach(r => {
+    if (r.t === 'char' && String(r.x).trim()) { c = scName(r.x); const e = m.get(c) || { name: c, lines: 0, words: 0 }; e.lines++; m.set(c, e); }
+    else if (r.t === 'dial' && c) m.get(c).words += countWords(r.x);
+    else if (r.t === 'scene' || r.t === 'action') c = null;
+  });
+  return [...m.values()].sort((a, b) => b.words - a.words);
+}
+
+/* ── UI ── */
+(function buildScript() {
+  const el = document.createElement('div'); el.id = 'script'; el.hidden = true; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Script writer');
+  el.innerHTML =
+    '<div class="sc-top"><button id="scBack" class="sc-plain" aria-label="Back to the note">← Back</button><div class="sc-brand"><b>Script</b><span id="scSub">Screenplay</span></div>' +
+    '<div class="sc-seg" id="scFmt" role="group" aria-label="Format"><button data-f="screenplay">Screenplay</button><button data-f="stage">Stage play</button></div>' +
+    '<div class="sc-types" id="scTypes" role="group" aria-label="Element type">' + SC_T.map((t, i) => '<button data-t="' + t + '" title="' + SC_SHORT[t] + ' (' + mod_() + ' ' + (i + 1) + ')">' + SC_SHORT[t] + '</button>').join('') + '</div><div class="spacer"></div>' +
+    '<button id="scNavBtn" class="sc-plain" aria-pressed="true">Outline</button><button id="scFocus" class="sc-plain" aria-pressed="false" title="Dim everything but the line you are writing">Focus</button><button id="scRead" class="sc-plain" title="Hear the script read aloud">Table read</button>' +
+    '<span class="sc-menuwrap"><button id="scExp" class="sc-plain" aria-haspopup="true">Export</button><div id="scMenu" hidden role="menu"><button data-x="fountain" role="menuitem">Fountain file (.fountain)</button><button data-x="pdf" role="menuitem">PDF (print)…</button><button data-x="txt" role="menuitem">Plain text (.txt)</button><button data-x="copy" role="menuitem">Copy as Fountain</button></div></span>' +
+    '<button id="scDone" class="primary" title="' + mod_() + ' Enter">Done</button></div>' +
+    '<div class="sc-body"><aside id="scNav"><div class="sc-tabs" role="tablist"><button data-p="scenes" class="on" role="tab">Scenes</button><button data-p="cast" role="tab">Cast</button><button data-p="notes" role="tab">Notes</button></div><div id="scList"></div></aside>' +
+    '<div id="scWrap"><div id="scPaper"><div id="scTitleCard"><input id="scTitle" aria-label="Title" placeholder="Untitled" autocomplete="off"><input id="scCredit" aria-label="Credit" placeholder="Written by" autocomplete="off"><input id="scAuthor" aria-label="Author" placeholder="Your name" autocomplete="off"></div><div id="scPage"></div></div></div></div>' +
+    '<div class="sc-foot"><span id="scPos"></span><span id="scStat"></span><span id="scHint">Tab changes the line type · Enter moves to the next · ' + mod_() + ' Z undoes</span></div>' +
+    '<div id="scAC" hidden role="listbox" aria-label="Suggestions"></div>';
+  document.body.appendChild(el);
+})();
+const scPage = () => $('#scPage');
+const scIdx = el => Array.prototype.indexOf.call(scPage().children, el);
+const scRowEl = i => scPage().children[i];
+function scStyleRow(d, r) { d.dataset.t = r.t; d.dataset.ph = scPh(r.t, SC.fmt); d.setAttribute('aria-label', SC_LAB[SC.fmt][r.t]); }
+function scMakeRow(r) {
+  const d = document.createElement('div'); d.className = 'sc-row'; d.setAttribute('contenteditable', SC_PT ? 'plaintext-only' : 'true'); d.spellcheck = true;
+  d.setAttribute('role', 'textbox'); d.setAttribute('aria-multiline', 'true'); scStyleRow(d, r); d.textContent = r.x || ''; return d;
+}
+function scRender() {
+  const p = scPage(); p.innerHTML = ''; SC.rows.forEach(r => p.appendChild(scMakeRow(r)));
+  $('#script').dataset.fmt = SC.fmt; $('#scSub').textContent = SC.fmt === 'stage' ? 'Stage play' : 'Screenplay';
+  $('#scFmt').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.f === SC.fmt); b.setAttribute('aria-pressed', b.dataset.f === SC.fmt); });
+  ['title', 'credit', 'author'].forEach(k => { $('#sc' + k[0].toUpperCase() + k.slice(1)).value = SC.meta[k] || ''; });
+  scMarkChips(); scRefresh();
+}
+function scMarkChips() {
+  const t = SC.rows[SC.cur] ? SC.rows[SC.cur].t : '';
+  $('#scTypes').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.t === t); b.setAttribute('aria-pressed', b.dataset.t === t); b.title = SC_LAB[SC.fmt][b.dataset.t] + ' (' + mod_() + ' ' + (SC_T.indexOf(b.dataset.t) + 1) + ')'; });
+}
+function scFocusRow(i, where) {
+  i = Math.max(0, Math.min(SC.rows.length - 1, i)); const el = scRowEl(i); if (!el) return;
+  el.focus(); const s = getSelection(), r = document.createRange();
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let left = where === 'start' ? 0 : typeof where === 'number' ? where : 1e9, t, placed = false;
+  while ((t = walker.nextNode())) { if (left <= t.length) { r.setStart(t, left); r.collapse(true); placed = true; break; } left -= t.length; }
+  if (!placed) { r.selectNodeContents(el); r.collapse(where === 'start'); }
+  s.removeAllRanges(); s.addRange(r); SC.cur = i; scMarkChips(); scMarkCur();
+  el.scrollIntoView && el.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' });
+}
+function scMarkCur() { scPage().querySelectorAll('.cur').forEach(x => x.classList.remove('cur')); const el = scRowEl(SC.cur); if (el) el.classList.add('cur'); }
+function scCaret(el) {
+  const s = getSelection(); if (!s.rangeCount || !el.contains(s.anchorNode)) return { a: 0, b: 0 };
+  const r = s.getRangeAt(0), pre = r.cloneRange(); pre.selectNodeContents(el); pre.setEnd(r.startContainer, r.startOffset);
+  const a = pre.toString().length; return { a, b: a + r.toString().length };
+}
+const scText = el => el.textContent.replace(/ /g, ' ');
+
+/* history (whole-script snapshots) */
+function scSnapState() { return JSON.stringify({ rows: SC.rows.map(r => ({ t: r.t, x: r.x })), meta: SC.meta, fmt: SC.fmt, cur: SC.cur }); }
+function scSnap() {
+  const s = scSnapState(); if (SC.hist[SC.hi] === s) return;
+  SC.hist.length = SC.hi + 1; SC.hist.push(s); SC.hi++; if (SC.hist.length > 120) { SC.hist.shift(); SC.hi--; }
+}
+function scRestore(i) {
+  scSnap(); if (i < 0 || i >= SC.hist.length) return; SC.hi = i; const s = JSON.parse(SC.hist[i]);
+  SC.rows = s.rows; SC.meta = s.meta; SC.fmt = s.fmt; scRender(); scFocusRow(Math.min(s.cur, SC.rows.length - 1), 'end'); scDirty();
+}
+const scUndo = () => scRestore(SC.hi - 1), scRedo = () => scRestore(SC.hi + 1);
+
+/* edits */
+let scTimer = 0, scSaveT = 0, scSnapT = 0;
+function scDirty() { clearTimeout(scTimer); scTimer = setTimeout(scRefresh, 200); clearTimeout(scSaveT); scSaveT = setTimeout(() => scSave(), 900); clearTimeout(scSnapT); scSnapT = setTimeout(scSnap, 500); }
+function scSave() {
+  if (!SC.on) return; const t = scSerial(SC.rows, SC.meta, SC.fmt);
+  if (t.trim() !== ed.value.trim()) { ed.value = t; ed.dispatchEvent(new Event('input')); }
+}
+function scRefresh() {
+  const pg = scPaginate(SC.rows, SC.fmt), p = scPage();
+  Array.prototype.forEach.call(p.children, (el, i) => { const r = SC.rows[i]; const brk = r && i > 0 && r.pg !== SC.rows[i - 1].pg && SC_W[SC.fmt][r.t]; el.classList.toggle('pgb', !!brk); if (brk) el.dataset.pg = 'Page ' + r.pg; });
+  const words = SC.rows.reduce((n, r) => n + (r.t === 'note' ? 0 : countWords(r.x || '')), 0), scenes = SC.rows.filter(r => r.t === 'scene' && String(r.x).trim()).length, cast = scCast(SC.rows).length;
+  const cur = SC.rows[SC.cur];
+  $('#scPos').textContent = (cur ? 'Page ' + cur.pg + ' of ' + pg.count : '') + ' · about ' + pg.count + ' min';
+  $('#scStat').textContent = scenes + (scenes === 1 ? ' scene' : ' scenes') + ' · ' + cast + (cast === 1 ? ' character' : ' characters') + ' · ' + words.toLocaleString() + ' words';
+  scNavDraw(); scMarkChips();
+}
+function scNavDraw() {
+  const list = $('#scList'); let h = '';
+  $('#scNav').querySelectorAll('.sc-tabs button').forEach(b => { b.classList.toggle('on', b.dataset.p === SC.tab); b.setAttribute('aria-selected', b.dataset.p === SC.tab); });
+  if (SC.tab === 'scenes') {
+    let n = 0;
+    SC.rows.forEach((r, i) => {
+      if (r.t === 'act' && r.x.trim()) h += '<div class="sc-act">' + esc(r.x) + '</div>';
+      if (r.t === 'scene') { n++; const on = i <= SC.cur && !SC.rows.slice(i + 1, SC.cur + 1).some(q => q.t === 'scene'); h += '<button data-i="' + i + '" class="' + (on ? 'on' : '') + '"><b>' + n + '</b><span>' + esc(scUp(r.x) || 'Untitled scene') + '</span><small>p. ' + r.pg + '</small></button>'; }
+    });
+    list.innerHTML = h || '<p class="hint">Scene headings you write appear here. Move the scene you are in with ' + mod_() + ' ⌥ ↑ ↓.</p>';
+  } else if (SC.tab === 'cast') {
+    const cast = scCast(SC.rows);
+    list.innerHTML = cast.length ? cast.map(c => '<button data-c="' + attr(c.name) + '"><b>' + esc(c.name[0] || '?') + '</b><span>' + esc(c.name) + '</span><small>' + c.lines + ' · ' + c.words + ' w</small></button>').join('') : '<p class="hint">Characters appear here once they speak.</p>';
+  } else {
+    const notes = SC.rows.map((r, i) => [r, i]).filter(([r]) => r.t === 'note' && r.x.trim());
+    list.innerHTML = notes.length ? notes.map(([r, i]) => '<button data-i="' + i + '"><b>✎</b><span>' + esc(r.x) + '</span></button>').join('') : '<p class="hint">Notes are for you. They never print.</p>';
+  }
+}
+function scSetType(i, t) {
+  const r = SC.rows[i], el = scRowEl(i); if (!r || !SC_T.includes(t)) return; scSnap();
+  r.t = t; r.x = scText(el); if (t === 'paren') { r.x = r.x.replace(/^\(+|\)+$/g, ''); el.textContent = r.x; }
+  scStyleRow(el, r); SC.cur = i; scMarkChips(); scAc(i); scDirty(); scRefresh();
+}
+function scCycle(i, dir) {
+  const r = SC.rows[i], k = SC_CYCLE.indexOf(r.t); let n;
+  if (k < 0) n = dir > 0 ? 0 : SC_CYCLE.length - 1; else n = (k + dir + SC_CYCLE.length) % SC_CYCLE.length;
+  scSetType(i, SC_CYCLE[n]);
+}
+function scInsert(i, row, where) {
+  SC.rows.splice(i, 0, row); const el = scMakeRow(row), p = scPage(); p.insertBefore(el, p.children[i] || null); scFocusRow(i, where || 'start'); scDirty(); scRefresh();
+}
+function scEnter(i, pos) {
+  scSnap(); const r = SC.rows[i], el = scRowEl(i), x = scText(el);
+  if (!x.trim()) { scSetType(i, SC_EMPTY[r.t]); return; }
+  if (pos.a < x.length) {
+    const head = x.slice(0, pos.a).replace(/\s+$/, ''), tail = x.slice(Math.max(pos.a, pos.b)).replace(/^\s+/, '');
+    r.x = head; el.textContent = head; scInsert(i + 1, { t: r.t === 'char' ? 'dial' : r.t === 'scene' ? 'action' : r.t, x: tail }, 'start'); return;
+  }
+  r.x = x; scInsert(i + 1, { t: SC_NEXT[r.t], x: '' }, 'start');
+}
+function scRemove(i) {
+  SC.rows.splice(i, 1); scPage().removeChild(scRowEl(i));
+  if (!SC.rows.length) { SC.rows.push({ t: 'scene', x: '' }); scPage().appendChild(scMakeRow(SC.rows[0])); }
+}
+function scBack(i, e) {
+  if (i === 0) return; const r = SC.rows[i], el = scRowEl(i), x = scText(el), prev = SC.rows[i - 1];
+  if (!x.trim()) { e.preventDefault(); scSnap(); scRemove(i); scFocusRow(i - 1, 'end'); scDirty(); scRefresh(); return; }
+  if (r.t !== 'action') { e.preventDefault(); scSetType(i, 'action'); return; }
+  if (prev.t === 'action' || !String(prev.x).trim()) {
+    e.preventDefault(); scSnap(); const pe = scRowEl(i - 1), at = scText(pe).length, joined = prev.x ? prev.x + '\n' + x : x, wasEmpty = !String(prev.x).trim();
+    prev.x = joined; if (wasEmpty) prev.t = r.t; pe.textContent = joined; scStyleRow(pe, prev); scRemove(i); scFocusRow(i - 1, wasEmpty ? 0 : at + 1); scDirty(); scRefresh();
+  }
+}
+function scMoveScene(i, dir) {
+  let s = i; while (s > 0 && SC.rows[s].t !== 'scene') s--; if (SC.rows[s].t !== 'scene') return;
+  let e = s + 1; while (e < SC.rows.length && SC.rows[e].t !== 'scene' && SC.rows[e].t !== 'act') e++;
+  const block = SC.rows.slice(s, e); let target;
+  if (dir < 0) { let p = s - 1; while (p >= 0 && SC.rows[p].t !== 'scene') p--; if (p < 0) return; target = p; }
+  else { if (e >= SC.rows.length || SC.rows[e].t !== 'scene') return; let n = e + 1; while (n < SC.rows.length && SC.rows[n].t !== 'scene' && SC.rows[n].t !== 'act') n++; target = n - block.length; }
+  scSnap(); const off = i - s; SC.rows.splice(s, block.length); SC.rows.splice(target, 0, ...block); scRender(); scFocusRow(target + off, 'end'); scDirty(); toast(dir < 0 ? 'Scene moved up' : 'Scene moved down');
+}
+function scAuto(i) {
+  const r = SC.rows[i], el = scRowEl(i); if (!r || !el) return;
+  if (r.t === 'action' && /^(INT|EXT|EST|I\/E)[. ]/i.test(r.x) && !r.x.includes('\n') && r.x.length >= 4) { r.t = 'scene'; scStyleRow(el, r); scMarkChips(); }
+  else if (r.t === 'dial' && /^\(/.test(r.x) && !r.x.includes('\n')) { r.t = 'paren'; r.x = r.x.replace(/^\(+/, ''); el.textContent = r.x; scStyleRow(el, r); scFocusRow(i, 'end'); }
+}
+function scInput(e) {
+  const el = e.target.closest && e.target.closest('.sc-row'); if (!el) return; const i = scIdx(el); if (i < 0) return;
+  if (el.textContent === '' && el.firstChild) el.innerHTML = '';
+  SC.rows[i].x = scText(el); SC.cur = i; scAuto(i); scAc(i); scDirty();
+}
+
+/* autocomplete */
+function scAcList(i) {
+  const r = SC.rows[i], x = r.x || '', u = scUp(x);
+  if (r.t === 'char') return scCast(SC.rows.filter((_, k) => k !== i)).map(c => c.name).filter(n => n !== scName(u) && n.startsWith(u)).slice(0, 6);
+  if (r.t === 'scene') {
+    if (!x.trim()) return SC.fmt === 'stage' ? [] : ['INT. ', 'EXT. ', 'INT./EXT. '];
+    const dash = u.indexOf(' - ');
+    if (dash > -1) { const tail = u.slice(dash + 3); return ['DAY', 'NIGHT', 'MORNING', 'AFTERNOON', 'EVENING', 'DAWN', 'DUSK', 'LATER', 'CONTINUOUS', 'MOMENTS LATER'].filter(t => t.startsWith(tail) && t !== tail).map(t => u.slice(0, dash + 3) + t).slice(0, 6); }
+    const locs = [...new Set(SC.rows.filter((q, k) => k !== i && q.t === 'scene' && q.x.trim()).map(q => scUp(q.x).replace(/\s+-\s+[^-]*$/, '')))];
+    return locs.filter(l => l.startsWith(u) && l !== u).slice(0, 6);
+  }
+  if (r.t === 'trans') return ['CUT TO:', 'FADE OUT.', 'DISSOLVE TO:', 'SMASH CUT TO:', 'MATCH CUT TO:', 'FADE IN:', 'FADE TO BLACK.'].filter(t => t.startsWith(u) && t !== u);
+  if (r.t === 'paren') { const l = x.toLowerCase(); return ['beat', 'pause', 'quietly', 'sighs', 'laughing', 'whispering', 'to himself', 'to herself', 'into phone', 'V.O.', 'O.S.'].filter(t => t.toLowerCase().startsWith(l) && t.toLowerCase() !== l).slice(0, 6); }
+  return [];
+}
+const scHas = i => String(SC.rows[i].x || '').trim();
+function scAc(i) {
+  const box = $('#scAC'), el = scRowEl(i); if (!el || document.activeElement !== el) return scAcClose();
+  const list = scAcList(i); if (!list.length) return scAcClose();
+  SC.ac = { i, list, sel: -1 }; box.hidden = false;
+  box.innerHTML = list.map((v, k) => '<button role="option" data-k="' + k + '">' + esc(v) + '</button>').join('') + '<small>' + (scHas(i) ? 'Tab to accept' : '↓ then Enter to choose') + '</small>';
+  const r = el.getBoundingClientRect(); box.style.left = Math.min(innerWidth - 240, Math.max(8, r.left + 24)) + 'px'; box.style.top = Math.min(innerHeight - 220, r.bottom + 4) + 'px';
+}
+function scAcClose() { SC.ac = null; const b = $('#scAC'); if (b) b.hidden = true; }
+function scAcMove(d) { const a = SC.ac; a.sel = (a.sel + d + a.list.length) % a.list.length; $('#scAC').querySelectorAll('button').forEach((b, k) => { b.classList.toggle('on', k === a.sel); b.setAttribute('aria-selected', k === a.sel); }); }
+function scAccept(i, v) {
+  if (v == null) return; const r = SC.rows[i], el = scRowEl(i); scSnap(); r.x = v; el.textContent = v; scAcClose(); scFocusRow(i, 'end'); scAuto(i); scDirty(); scRefresh();
+  if (r.t === 'scene') scAc(i);
+}
+
+function scKey(e) {
+  const el = e.target.closest && e.target.closest('.sc-row'); if (!el) return; const i = scIdx(el), r = SC.rows[i], pos = scCaret(el), mod = e.metaKey || e.ctrlKey;
+  const ac = SC.ac && SC.ac.i === i && SC.ac.list.length ? SC.ac : null;
+  if (e.key === 'Escape' && ac) { e.preventDefault(); e.stopPropagation(); scAcClose(); return; }
+  if (ac && !mod && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); scAcMove(e.key === 'ArrowDown' ? 1 : -1); return; }
+  if (mod && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); scUndo(); return; }
+  if (mod && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); scRedo(); return; }
+  if (e.key === 'Tab') { e.preventDefault(); if (ac && !e.shiftKey && (ac.sel >= 0 || scText(el).trim())) scAccept(i, ac.list[Math.max(0, ac.sel)]); else scCycle(i, e.shiftKey ? -1 : 1); return; }
+  if (mod && /^[1-8]$/.test(e.key)) { e.preventDefault(); scSetType(i, SC_T[+e.key - 1]); return; }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (mod) { scDone(); return; }
+    if (e.shiftKey) { if (['action', 'dial', 'note'].includes(r.t)) { document.execCommand('insertLineBreak') || document.execCommand('insertText', false, '\n'); scInput({ target: el }); } return; }
+    if (ac && ac.sel >= 0) { scAccept(i, ac.list[ac.sel]); return; }
+    scAcClose(); scEnter(i, pos); return;
+  }
+  if (e.key === 'Backspace' && pos.a === 0 && pos.b === 0) { scBack(i, e); return; }
+  if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); scMoveScene(i, e.key === 'ArrowUp' ? -1 : 1); return; }
+  const txt = scText(el);
+  if (e.key === 'ArrowUp' && !e.shiftKey && !mod && !txt.slice(0, pos.a).includes('\n') && i > 0) { e.preventDefault(); scAcClose(); scFocusRow(i - 1, 'end'); return; }
+  if (e.key === 'ArrowDown' && !e.shiftKey && !mod && !txt.slice(pos.b).includes('\n') && i < SC.rows.length - 1) { e.preventDefault(); scAcClose(); scFocusRow(i + 1, 'start'); return; }
+}
+function scPaste(e) {
+  const el = e.target.closest && e.target.closest('.sc-row'); if (!el) return; e.preventDefault();
+  const txt = ((e.clipboardData || window.clipboardData).getData('text/plain') || '').replace(/\r/g, ''); if (!txt) return;
+  if (!/\n/.test(txt.trim())) { document.execCommand('insertText', false, txt.trim()); return; }
+  scSnap(); const i = scIdx(el), parsed = scParse(txt).rows.filter(r => r.x.trim()), empty = !scText(el).trim();
+  if (empty) { SC.rows.splice(i, 1, ...parsed); } else SC.rows.splice(i + 1, 0, ...parsed);
+  scRender(); scFocusRow(i + (empty ? parsed.length - 1 : parsed.length), 'end'); scDirty(); toast('Pasted ' + parsed.length + ' lines, formatted automatically');
+}
+
+/* open / close */
+function openScript(fmt) {
+  flush(); const p = scParse(ed.value); SC.meta = p.meta; SC.rows = p.rows;
+  SC.fmt = fmt || (p.meta.format && /stage/i.test(p.meta.format) ? 'stage' : 'screenplay'); SC.cur = 0; SC.hist = []; SC.hi = -1; SC.on = true; SC.ac = null;
+  $('#script').hidden = false; document.body.classList.add('scripting'); scRender(); scSnap();
+  const first = SC.rows.findIndex(r => !String(r.x).trim()); scFocusRow(first > -1 ? first : SC.rows.length - 1, 'end');
+  if (innerWidth <= 900 && !SC.navSet) { SC.nav = false; SC.navSet = true; }
+  $('#scNav').hidden = !SC.nav; $('#scNavBtn').setAttribute('aria-pressed', SC.nav);
+}
+function scDone() {
+  scReadStop(); clearTimeout(scSaveT); scAcClose(); scSave(); SC.on = false; $('#script').hidden = true; $('#scMenu').hidden = true; document.body.classList.remove('scripting'); ed.focus(); render();
+}
+function scTitleName() { return (SC.meta.title || 'script').trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-').toLowerCase() || 'script'; }
+
+/* export */
+function scPlain() {
+  const W = SC_W[SC.fmt], IND = SC.fmt === 'stage' ? { scene: 0, action: 16, char: 10, paren: 10, dial: 10, trans: 44, act: 0 } : { scene: 0, action: 0, char: 22, paren: 16, dial: 10, trans: 44, act: 0 }, out = [];
+  if (SC.meta.title) { out.push('', '', scUp(SC.meta.title), '', SC.meta.credit || '', SC.meta.author || '', '', '', ''); }
+  let prev = null;
+  SC.rows.forEach(r => {
+    if (!W[r.t] || !String(r.x).trim()) return; const x = r.t === 'paren' ? '(' + r.x + ')' : ['scene', 'char', 'trans', 'act'].includes(r.t) ? scUp(r.x) : r.x;
+    const chain = (prev === 'char' || prev === 'paren') && (r.t === 'paren' || r.t === 'dial'); if (!chain && out.length) out.push('');
+    scWrap(x, W[r.t]).forEach(l => out.push(' '.repeat(IND[r.t] || 0) + l)); prev = r.t;
+  });
+  return out.join('\n') + '\n';
+}
+function scPrintHtml() {
+  const pg = scPaginate(SC.rows, SC.fmt), stage = SC.fmt === 'stage'; let prev = null;
+  const body = pg.pages.map((idxs, n) => '<section class="pg">' + (n ? '<div class="no">' + (n + 1) + '.</div>' : '') + idxs.map(i => {
+    const r = SC.rows[i]; let x = esc(r.x); if (['scene', 'char', 'trans', 'act'].includes(r.t)) x = esc(scUp(r.x)); if (r.t === 'paren') x = '(' + x + ')';
+    const chain = (prev === 'char' || prev === 'paren') && (r.t === 'paren' || r.t === 'dial'); prev = r.t;
+    return '<div class="e ' + r.t + (chain ? ' tight' : '') + '">' + x + '</div>';
+  }).join('') + '</section>').join('');
+  const m = SC.meta, title = m.title ? '<section class="pg ttl"><div class="tt"><h1>' + esc(scUp(m.title)) + '</h1><p>' + esc(m.credit || '') + '</p><p>' + esc(m.author || '') + '</p></div><div class="ct">' + esc(m.contact || '') + (m.draft ? '<br>' + esc(m.draft) : '') + '</div></section>' : '';
+  const css = '@page{size:letter;margin:0}*{box-sizing:border-box}body{margin:0;font:12pt/12pt "Courier Prime","Courier New",Courier,monospace;color:#000;background:#fff}' +
+    '.pg{width:8.5in;height:11in;padding:1in 1in 1in 1.5in;position:relative;overflow:hidden;page-break-after:always}.pg:last-child{page-break-after:auto}.no{position:absolute;top:.5in;right:1in}' +
+    '.e{white-space:pre-wrap;margin-top:12pt;width:60ch}.e:first-child{margin-top:0}.e.tight{margin-top:0}' +
+    '.ttl{display:flex;flex-direction:column;justify-content:space-between}.tt{text-align:center;margin-top:3.2in}.tt h1{font:inherit;font-weight:700;text-decoration:underline;margin:0 0 24pt}.tt p{margin:0 0 12pt}.ct{white-space:pre-wrap;font-size:11pt;line-height:13pt}' +
+    (stage ?
+      '.scene{text-align:center;font-weight:700}.act{text-align:center;font-weight:700;text-decoration:underline;margin-top:0}.action{margin-left:16ch;width:44ch;font-style:italic}.char{margin-left:10ch;width:44ch;font-weight:700}.paren{margin-left:10ch;width:44ch;font-style:italic}.dial{margin-left:10ch;width:44ch}.trans{text-align:right}.note{display:none}' :
+      '.scene{font-weight:700}.action{width:60ch}.char{margin-left:22ch;width:38ch}.paren{margin-left:16ch;width:25ch}.dial{margin-left:10ch;width:35ch}.trans{text-align:right;width:60ch}.act,.note{display:none}');
+  return '<!doctype html><meta charset="utf-8"><title>' + esc(m.title || 'Script') + '</title><style>' + css + '</style><body>' + title + body;
+}
+function scExport(kind) {
+  scSave(); $('#scMenu').hidden = true; const t = scSerial(SC.rows, SC.meta, SC.fmt);
+  if (kind === 'fountain') { download(scTitleName() + '.fountain', t, 'text/plain'); toast('Saved as Fountain — opens in Final Draft, Highland, Fade In and more'); }
+  else if (kind === 'txt') { download(scTitleName() + '.txt', scPlain(), 'text/plain'); }
+  else if (kind === 'copy') { navigator.clipboard && navigator.clipboard.writeText(t).then(() => toast('Copied as Fountain'), () => toast('Could not copy')); }
+  else if (kind === 'pdf') {
+    const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f); f.srcdoc = scPrintHtml();
+    f.onload = () => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 60000); };
+  }
+}
+
+/* table read */
+let scLast = -1;
+function scReadStop() { if (SC.speaking) { try { speechSynthesis.cancel(); } catch (e) { } } SC.speaking = false; const b = $('#scRead'); if (b) b.textContent = 'Table read'; scPage().querySelectorAll('.speaking').forEach(x => x.classList.remove('speaking')); }
+function scRead() {
+  if (SC.speaking) return scReadStop();
+  if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return toast('This device has no speech voices');
+  const voices = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)), names = scCast(SC.rows).map(c => c.name); let who = null, count = 0;
+  SC.speaking = true; $('#scRead').textContent = 'Stop reading'; speechSynthesis.cancel();
+  SC.rows.forEach((r, i) => {
+    if (i < SC.cur || !String(r.x).trim()) return; let txt = '', pitch = 1, rate = 1, vol = 1, voice = null;
+    if (r.t === 'char') { who = scName(r.x); return; }
+    if (r.t === 'dial') { const k = Math.max(0, names.indexOf(who)); txt = r.x.replace(/\n/g, ' '); pitch = .8 + (k % 5) * .15; rate = 1 + ((k * 7) % 3) * .04; voice = voices.length ? voices[(k + 1) % voices.length] : null; }
+    else if (r.t === 'scene') { txt = r.x; vol = .8; rate = .9; who = null; } else if (r.t === 'action') { txt = r.x.replace(/\n/g, ' '); vol = .7; rate = .98; who = null; } else return;
+    const u = new SpeechSynthesisUtterance(txt); u.pitch = pitch; u.rate = rate; u.volume = vol; if (voice) u.voice = voice; count++;
+    u.onstart = () => { scPage().querySelectorAll('.speaking').forEach(x => x.classList.remove('speaking')); const el = scRowEl(i); if (el) { el.classList.add('speaking'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } };
+    u.onend = () => { if (i === scLast) scReadStop(); };
+    speechSynthesis.speak(u); scLast = i;
+  });
+  if (!count) scReadStop();
+}
+
+/* wiring */
+(function wireScript() {
+  const root = $('#script'), page = scPage();
+  page.addEventListener('keydown', scKey); page.addEventListener('input', scInput); page.addEventListener('paste', scPaste);
+  page.addEventListener('focusin', e => { const el = e.target.closest('.sc-row'); if (el) { SC.cur = scIdx(el); scMarkChips(); scMarkCur(); const c = SC.rows[SC.cur]; if (c) { $('#scPos').textContent = 'Page ' + c.pg + ' of ' + (scPaginate(SC.rows, SC.fmt).count) + ' · ' + SC_LAB[SC.fmt][c.t]; } scAc(SC.cur); } });
+  page.addEventListener('focusout', () => setTimeout(() => { if (!document.activeElement || !document.activeElement.classList || !document.activeElement.classList.contains('sc-row')) scAcClose(); }, 120));
+  $('#scAC').addEventListener('mousedown', e => { const b = e.target.closest('[data-k]'); if (b && SC.ac) { e.preventDefault(); scAccept(SC.ac.i, SC.ac.list[+b.dataset.k]); } });
+  $('#scTypes').addEventListener('mousedown', e => e.preventDefault());
+  $('#scTypes').addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (b) { scSetType(SC.cur, b.dataset.t); scFocusRow(SC.cur, 'end'); } });
+  $('#scFmt').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b && b.dataset.f !== SC.fmt) { scSnap(); SC.fmt = b.dataset.f; scRender(); scFocusRow(SC.cur, 'end'); scDirty(); } });
+  $('#scriptBtn').onclick = () => openScript();
+  $('#scBack').onclick = $('#scDone').onclick = scDone;
+  $('#scNavBtn').onclick = () => { SC.nav = !SC.nav; SC.navSet = true; $('#scNav').hidden = !SC.nav; $('#scNavBtn').setAttribute('aria-pressed', SC.nav); };
+  $('#scFocus').onclick = () => { SC.focus = !SC.focus; root.classList.toggle('fx', SC.focus); $('#scFocus').setAttribute('aria-pressed', SC.focus); };
+  $('#scRead').onclick = scRead;
+  $('#scExp').onclick = e => { e.stopPropagation(); $('#scMenu').hidden = !$('#scMenu').hidden; };
+  $('#scMenu').addEventListener('click', e => { const b = e.target.closest('[data-x]'); if (b) scExport(b.dataset.x); });
+  root.addEventListener('mousedown', e => { if (!e.target.closest('.sc-menuwrap')) $('#scMenu').hidden = true; });
+  $('#scNav').addEventListener('click', e => {
+    const t = e.target.closest('[data-p]'); if (t) { SC.tab = t.dataset.p; scNavDraw(); return; }
+    const b = e.target.closest('button[data-i],button[data-c]'); if (!b) return;
+    if (b.dataset.i) scFocusRow(+b.dataset.i, 'end');
+    else { const from = SC.rows.findIndex((r, i) => i > SC.cur && r.t === 'char' && scName(r.x) === b.dataset.c), any = SC.rows.findIndex(r => r.t === 'char' && scName(r.x) === b.dataset.c); scFocusRow(from > -1 ? from : any, 'end'); }
+  });
+  [['scTitle', 'title'], ['scCredit', 'credit'], ['scAuthor', 'author']].forEach(([id, k]) => $('#' + id).addEventListener('input', e => { SC.meta[k] = e.target.value; scDirty(); }));
+  root.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); scDone(); }
+    else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.target.closest('.sc-row')) { e.preventDefault(); scDone(); }
+  });
+  ['scTitle', 'scCredit', 'scAuthor'].forEach(id => $('#' + id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); scFocusRow(0, 'start'); } }));
+})();
+const SCRIPT_COMMANDS = [
+  ['Script writer: open this note as a script', mod_() + ' ⇧ Y', () => openScript()],
+  ['New screenplay', '', () => fromTemplate('Screenplay')],
+  ['New stage play', '', () => fromTemplate('Stage play')],
+  ['Script: switch to stage play layout', '', () => { openScript('stage'); }],
+  ['Script: switch to screenplay layout', '', () => { openScript('screenplay'); }],
+  ['Script: export as Fountain', '', () => { openScript(); scExport('fountain'); scDone(); }],
+  ['Script: print or save as PDF', '', () => { openScript(); scExport('pdf'); }]
+];
+
+COMMANDS.push(...MORE_COMMANDS, ...RESEARCH_COMMANDS, ...EXTRA_COMMANDS, ...NEW_COMMANDS, ...TOOL_COMMANDS, ...FEAT_COMMANDS, ...SNIP_COMMANDS, ...MORE2_COMMANDS, ...ULTRA_COMMANDS, ...SCRIPT_COMMANDS);
 let palSel = 0, palItems = [], palMode = 'cmd';
 function openPalette(mode, prefill) {
   palMode = mode === 'doc' ? 'doc' : 'cmd'; palSel = 0;
@@ -3214,6 +3701,8 @@ $('#preview').addEventListener('click', e => {
 
 document.addEventListener('keydown', e => {
   const m = e.metaKey || e.ctrlKey; const k = e.key.toLowerCase();
+  if (SC.on && e.target.closest && e.target.closest('#script') && !(m && !e.shiftKey && k === 'k')) return;
+  if (m && e.altKey && e.code === 'KeyT') { e.preventDefault(); toggleTypewriter(); return; }
   if (e.key === 'Escape') {
     if (ultraEsc()) return;
     if (!$('#studio').hidden || !$('#mail').hidden) return;
@@ -3238,6 +3727,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'p') run(() => openPalette('doc'));
   else if (k === 'l' && e.shiftKey) run(lookupSelection);
   else if (k === 'e' && e.shiftKey) run(openStudio);
+  else if (k === 'y' && e.shiftKey) run(() => openScript());
   else if (k === 'o' && e.shiftKey) run(openCards);
   else if (k === 'd' && e.shiftKey) run(openDaily);
   else if (k === 'u' && e.shiftKey) run(openUltra);
@@ -3285,7 +3775,7 @@ addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragN = 0; if (!$('#studio').hidden) return; document.body.classList.remove('drop'); if (e.dataTransfer?.files?.length) handleFiles([...e.dataTransfer.files]); });
 
 // desktop wrapper hooks (Electron menu)
-window.wren = { openUltra, startUltra, openMail, openDaily, openPresent, toggleReading, formatTable, setTheme, openCards, openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { UF, UL, ambient, stopAmbient, leaveUltra, ultraEsc, setTarget, insertFootnote, writingPrompt, PROMPTS, parseYouTube, lineDiff, splitNote, paintRanges, MAIL, mdToPlain, subjectIdeas, addrParse, splitAddrs, mailChecks, mailAll, mailtoUrl, mailPlain, mailRich, expandSnippet, mailReady, mailSend, stageShow, splitSlides, snip, THEMES, styleScan, applyStyleFix, fixAllStyle, tagsOf, matchDoc, splitSections, CARDS, moveCard, applyCards, renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
+window.wren = { openScript, toggleTypewriter, openUltra, startUltra, openMail, openDaily, openPresent, toggleReading, formatTable, setTheme, openCards, openStudio, openTemplates, newDoc, saveFile, openFromDisk, togglePreview, cycleFocus, toggleZen, openPalette, openSettings, exports: EXPORTS, importFiles, backupAll, exportZip, readAloud, startTimer, stopTimer, _t: { SC, scParse, scSerial, scPaginate, scCast, scLines, scWrap, scEnter, scSetType, scCycle, scMoveScene, scAcList, scPlain, scPrintHtml, scUndo, scRedo, scSnap, scRender, scRemove, scBack, scFocusRow, scDone, twMark, UF, UL, ambient, stopAmbient, leaveUltra, ultraEsc, setTarget, insertFootnote, writingPrompt, PROMPTS, parseYouTube, lineDiff, splitNote, paintRanges, MAIL, mdToPlain, subjectIdeas, addrParse, splitAddrs, mailChecks, mailAll, mailtoUrl, mailPlain, mailRich, expandSnippet, mailReady, mailSend, stageShow, splitSlides, snip, THEMES, styleScan, applyStyleFix, fixAllStyle, tagsOf, matchDoc, splitSections, CARDS, moveCard, applyCards, renderMarkdown, countWords, fullHtml, setPV: v => { S.pvTheme = v; }, d2mHtml, splitBlocks, storeImage, mdOut, studioMarkdown, applyStudio, stApplyColor, stInsertHtml, stInsertImage, renderEmbed, toggleComment, analyze, buildZip, openWiki, fromTemplate, parseMusic, playMusic, isVideoUrl, showStats, setSrc } };
 
 /* ───────── boot ───────── */
 document.body.classList.toggle('nosb', !S.sidebar || innerWidth <= 820);

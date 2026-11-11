@@ -53,6 +53,7 @@
       </div>
       <button id="previewBtn" class="icon" title="Preview (Ctrl/⌘ Shift P)" aria-label="Toggle preview"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="3.5"/><path d="M12 4.5v15"/></svg></button>
       <button id="mailBtn" class="icon" title="Compose an email (Ctrl/⌘ Shift M)" aria-label="Compose email"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5.500" width="18" height="13" rx="3"/><path d="M4 8l8 5.500L20 8"/></svg></button>
+      <button id="scriptBtn" class="icon" title="Script writer — screenplays and plays (Ctrl/⌘ Shift Y)" aria-label="Script writer"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 9l1.6-4.6 14.2 2.4L19 9"/><path d="M8.5 5.2l2 3.2M13 6l2 3.2"/></svg></button>
       <button id="studioBtn" class="icon" title="Studio — visual editor (Ctrl/⌘ Shift E)" aria-label="Studio"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.7 0 2.2-1.2 1.4-2.3-.7-1.1 0-2.2 1.3-2.2H17a4 4 0 0 0 4-4c0-5-4-9.5-9-9.5z"/><circle cx="7.5" cy="11.5" r="1" fill="currentColor"/><circle cx="10.5" cy="7.5" r="1" fill="currentColor"/><circle cx="15.5" cy="8" r="1" fill="currentColor"/></svg></button>
       <button id="musicBtn" class="icon" title="Music (Spotify)" aria-label="Music"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></button>
       <button id="researchBtn" class="icon" title="Research on Wikipedia (Ctrl/⌘ Shift L)" aria-label="Research on Wikipedia"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 4 5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V5c-3-.5-6 0-8 1.5z"/><path d="M12 6.5v13"/></svg></button>
@@ -114,6 +115,7 @@
       <span id="stTimer" hidden title="Click to stop the timer"></span>
       <div class="spacer"></div>
       <span id="stTarget" hidden title="Word target for this note. Click to change."></span>
+      <button id="stTw" class="st-tw" aria-pressed="false" title="Typewriter mode: keeps the line you are writing in the middle (Ctrl/⌘ Alt T)">Typewriter</button>
       <span id="stGoal" title="Daily word goal"></span>
       <span id="stSaved">Saved</span>
     </footer>
@@ -150,7 +152,7 @@
       <label>Line width <input type="range" min="420" max="1000" step="10" data-k="width"></label>
       <label>Focus mode
         <select data-k="focus"><option value="off">Off</option><option value="line">Line</option><option value="sentence">Sentence</option><option value="paragraph">Paragraph</option></select></label>
-      <label class="chk"><input type="checkbox" data-k="typewriter"> Typewriter scrolling</label>
+      <label class="chk"><input type="checkbox" data-k="typewriter"> Typewriter mode</label>
       <label class="chk"><input type="checkbox" data-k="spell"> Spell check</label>
       <label class="chk"><input type="checkbox" data-k="smart"> Smart typography (“ ” ’ — …)</label>
       <label class="chk"><input type="checkbox" data-k="autopair"> Auto-close brackets &amp; quotes</label>
